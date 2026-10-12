@@ -360,8 +360,7 @@ func (p *Provider) Sync(c *controller.Context) error {
 	l := log.FromContext(c.Context())
 	l.Info("Syncing instance", "name", c.Name())
 
-	_, password, err := ensureCredentials(c)
-	if err != nil {
+	if _, _, err := ensureCredentials(c); err != nil {
 		return err
 	}
 
@@ -369,7 +368,10 @@ func (p *Provider) Sync(c *controller.Context) error {
 	if err != nil {
 		return err
 	}
-	applyAuthConfig(&spec, password)
+	applyAuthConfig(&spec, credentialsSecretName(c.Name()))
+	if err := applyStorageCredentials(c, &spec); err != nil {
+		return err
+	}
 
 	cr := &milvusapi.Milvus{
 		ObjectMeta: c.ObjectMeta(c.Name()),

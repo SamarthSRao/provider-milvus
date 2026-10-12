@@ -428,8 +428,13 @@ func TestSyncSeedsAuthAndStatusSurfacesCredentials(t *testing.T) {
 	require.NoError(t, c.Get(cr, c.Name()))
 	security := cr.Spec.Conf["common"].(map[string]any)["security"].(map[string]any)
 	assert.Equal(t, true, security["authorizationEnabled"])
-	password, ok := security["defaultRootPassword"].(string)
-	require.True(t, ok)
+	assert.NotContains(t, security, "defaultRootPassword", "the password must stay out of the CR")
+	require.Len(t, cr.Spec.Com.Env, 1)
+	assert.Equal(t, credentialsSecretName(c.Name()), cr.Spec.Com.Env[0].ValueFrom.SecretKeyRef.Name)
+
+	secret := &corev1.Secret{}
+	require.NoError(t, c.Get(secret, credentialsSecretName(c.Name())))
+	password := string(secret.Data[secretKeyPassword])
 	assert.NotEmpty(t, password)
 
 	cr.Status.Status = milvusapi.StatusHealthy

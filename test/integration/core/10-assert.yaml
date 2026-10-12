@@ -18,6 +18,12 @@ metadata:
 spec:
   mode: standalone
   components:
+    env:
+      - name: COMMON_SECURITY_DEFAULTROOTPASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: test-instance-credentials
+            key: password
     standalone:
       replicas: 1
       podLabels:
@@ -32,11 +38,13 @@ spec:
     common:
       security:
         authorizationEnabled: true
-        (defaultRootPassword != null): true
+        # The root password comes from the Secret, never from the CR.
+        (defaultRootPassword == null): true
   dependencies:
     storage:
       inCluster:
         values:
+          existingSecret: test-instance-minio
           persistence:
             size: 10Gi
 ---
@@ -49,3 +57,13 @@ type: Opaque
 data:
   username: cm9vdA==
   (password != null): true
+---
+# Bundled MinIO gets per-instance root credentials instead of minioadmin.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: test-instance-minio
+type: Opaque
+data:
+  (rootUser != null): true
+  (rootPassword != null): true
