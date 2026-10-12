@@ -334,6 +334,10 @@ GPU bundles only switch images; request GPUs per component with
 registry mirror); components on different images are updated all at once
 instead of in the operator's dependency order.
 
+Versions only move forward. Milvus migrates its metadata when it upgrades, so
+a version older than the one deployed — for the bundle or for a single pinned
+component — is rejected, and so is reverting an upgrade that has already started.
+
 <!-- TODO(provider): document the supported upgrade paths (minor only? operator first?). -->
 
 ## Configuration
