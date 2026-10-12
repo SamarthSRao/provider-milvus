@@ -57,6 +57,7 @@ type: Opaque
 data:
   username: cm9vdA==
   (password != null): true
+  (appliedPassword == password): true
 ---
 # Bundled MinIO gets per-instance root credentials instead of minioadmin.
 apiVersion: v1

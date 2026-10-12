@@ -22,6 +22,9 @@ const (
 	// credentials are stored in the Secret.
 	secretKeyUsername = "username"
 	secretKeyPassword = "password"
+	// secretKeyAppliedPassword holds the password Milvus currently accepts; it
+	// differs from secretKeyPassword while a rotation is pending.
+	secretKeyAppliedPassword = "appliedPassword"
 	// passwordLength is the generated root password length. Milvus caps
 	// defaultRootPassword at 72 characters.
 	passwordLength = 24
@@ -78,21 +81,60 @@ func fillFromAlphabet(dst []byte, alphabet string) error {
 	return nil
 }
 
+// rootCredentials are the root password the user asked for and the one Milvus
+// currently accepts.
+type rootCredentials struct {
+	password        string
+	appliedPassword string
+}
+
+func (r rootCredentials) rotationPending() bool {
+	return r.password != r.appliedPassword
+}
+
 // ensureCredentials returns the root credentials for the instance, creating the
 // backing Secret with a freshly generated password on first reconcile.
-func ensureCredentials(c *controller.Context) (username, password string, err error) {
-	password, err = generatePassword(passwordLength)
-	if err != nil {
-		return "", "", err
+func ensureCredentials(c *controller.Context) (rootCredentials, error) {
+	existing := &corev1.Secret{}
+	err := c.Get(existing, credentialsSecretName(c.Name()))
+	if err != nil && !apierrors.IsNotFound(err) {
+		return rootCredentials{}, fmt.Errorf("get credentials secret: %w", err)
 	}
-	data, err := ensureGeneratedSecret(c, credentialsSecretName(c.Name()), map[string][]byte{
-		secretKeyUsername: []byte(rootUsername),
-		secretKeyPassword: []byte(password),
-	})
-	if err != nil {
-		return "", "", err
+	if err == nil && len(existing.Data[secretKeyPassword]) > 0 {
+		creds := rootCredentials{
+			password:        string(existing.Data[secretKeyPassword]),
+			appliedPassword: string(existing.Data[secretKeyAppliedPassword]),
+		}
+		if creds.appliedPassword != "" {
+			return creds, nil
+		}
+		// Secrets from before rotation support hold only the seeded password.
+		creds.appliedPassword = creds.password
+		return creds, applyCredentialsSecret(c, creds)
 	}
-	return rootUsername, string(data[secretKeyPassword]), nil
+
+	password, err := generatePassword(passwordLength)
+	if err != nil {
+		return rootCredentials{}, err
+	}
+	creds := rootCredentials{password: password, appliedPassword: password}
+	return creds, applyCredentialsSecret(c, creds)
+}
+
+func applyCredentialsSecret(c *controller.Context, creds rootCredentials) error {
+	secret := &corev1.Secret{
+		ObjectMeta: c.ObjectMeta(credentialsSecretName(c.Name())),
+		Type:       corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			secretKeyUsername:        []byte(rootUsername),
+			secretKeyPassword:        []byte(creds.password),
+			secretKeyAppliedPassword: []byte(creds.appliedPassword),
+		},
+	}
+	if err := c.Apply(secret); err != nil {
+		return fmt.Errorf("apply credentials secret: %w", err)
+	}
+	return nil
 }
 
 // ensureGeneratedSecret returns the data of the named Secret, persisting

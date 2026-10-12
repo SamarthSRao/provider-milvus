@@ -25,6 +25,7 @@ var _ controller.ProviderInterface = (*Provider)(nil)
 // Provider implements controller.ProviderInterface for the provider-milvus provider.
 type Provider struct {
 	controller.BaseProvider
+	rootPassword rootPasswordAPI
 }
 
 // New creates a new Provider instance.
@@ -38,8 +39,10 @@ func New() *Provider {
 			},
 			WatchConfigs: []controller.WatchConfig{
 				controller.WatchOwned(&milvusapi.Milvus{}),
+				controller.WatchOwned(&corev1.Secret{}, credentialsSecretChanged()),
 			},
 		},
+		rootPassword: newMilvusRESTClient(),
 	}
 }
 
@@ -360,7 +363,8 @@ func (p *Provider) Sync(c *controller.Context) error {
 	l := log.FromContext(c.Context())
 	l.Info("Syncing instance", "name", c.Name())
 
-	if _, _, err := ensureCredentials(c); err != nil {
+	creds, err := ensureCredentials(c)
+	if err != nil {
 		return err
 	}
 
@@ -380,7 +384,10 @@ func (p *Provider) Sync(c *controller.Context) error {
 	if err := c.Apply(cr); err != nil {
 		return err
 	}
-	return syncPodMonitor(c)
+	if err := syncPodMonitor(c); err != nil {
+		return err
+	}
+	return p.syncRootPassword(c, creds)
 }
 
 // Status computes the current status of the database instance.
@@ -400,21 +407,23 @@ func (p *Provider) Status(c *controller.Context) (controller.Status, error) {
 			return controller.Provisioning(message), nil
 		}
 
-		username, password, err := ensureCredentials(c)
+		creds, err := ensureCredentials(c)
 		if err != nil {
 			return controller.Status{}, err
 		}
+		// Clients keep the working password until a rotation lands.
+		password := creds.appliedPassword
 
 		return controller.ReadyWithConnectionDetails(controller.ConnectionDetails{
 			Type:     "milvus",
 			Provider: common.ProviderName,
 			Host:     host,
 			Port:     port,
-			Username: username,
+			Username: rootUsername,
 			Password: password,
 			URI:      fmt.Sprintf("http://%s:%s", host, port),
 			AdditionalProperties: map[string]string{
-				"token": fmt.Sprintf("%s:%s", username, password),
+				"token": fmt.Sprintf("%s:%s", rootUsername, password),
 			},
 		}), nil
 	case milvusapi.StatusPending, milvusapi.StatusDeleting:

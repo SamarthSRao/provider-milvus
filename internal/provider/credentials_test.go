@@ -30,26 +30,47 @@ func TestGeneratePassword(t *testing.T) {
 func TestEnsureCredentialsGeneratesAndPersists(t *testing.T) {
 	c := newTestContext(t, corev1alpha1.InstanceSpec{})
 
-	username, password, err := ensureCredentials(c)
+	creds, err := ensureCredentials(c)
 	require.NoError(t, err)
-	assert.Equal(t, rootUsername, username)
-	assert.NotEmpty(t, password)
+	assert.NotEmpty(t, creds.password)
+	assert.False(t, creds.rotationPending(), "a fresh password is the one Milvus gets seeded with")
 
 	secret := &corev1.Secret{}
 	require.NoError(t, c.Get(secret, credentialsSecretName(c.Name())))
 	assert.Equal(t, rootUsername, string(secret.Data[secretKeyUsername]))
-	assert.Equal(t, password, string(secret.Data[secretKeyPassword]))
+	assert.Equal(t, creds.password, string(secret.Data[secretKeyPassword]))
+	assert.Equal(t, creds.password, string(secret.Data[secretKeyAppliedPassword]))
 }
 
 func TestEnsureCredentialsIsStableAcrossCalls(t *testing.T) {
 	c := newTestContext(t, corev1alpha1.InstanceSpec{})
 
-	_, first, err := ensureCredentials(c)
+	first, err := ensureCredentials(c)
 	require.NoError(t, err)
-	_, second, err := ensureCredentials(c)
+	second, err := ensureCredentials(c)
 	require.NoError(t, err)
 
 	assert.Equal(t, first, second, "existing password must be reused")
+}
+
+func TestEnsureCredentialsBackfillsAppliedPassword(t *testing.T) {
+	legacy := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-milvus-credentials", Namespace: "db"},
+		Data: map[string][]byte{
+			secretKeyUsername: []byte(rootUsername),
+			secretKeyPassword: []byte("seeded"),
+		},
+	}
+	c := newTestContextWithObjects(t, corev1alpha1.InstanceSpec{}, legacy)
+
+	creds, err := ensureCredentials(c)
+	require.NoError(t, err)
+	assert.Equal(t, rootCredentials{password: "seeded", appliedPassword: "seeded"}, creds)
+
+	secret := &corev1.Secret{}
+	require.NoError(t, c.Get(secret, credentialsSecretName(c.Name())))
+	assert.Equal(t, "seeded", string(secret.Data[secretKeyAppliedPassword]),
+		"the seeded password must be recorded before the user can change it")
 }
 
 func TestApplyAuthConfig(t *testing.T) {
