@@ -30,10 +30,11 @@ const (
 	rootPasswordEnv = "COMMON_SECURITY_DEFAULTROOTPASSWORD"
 
 	// storageSecretSuffix matches the Secret the operator points Milvus at for
-	// bundled object storage; the keys are the ones the Silo chart reads.
+	// bundled object storage; the operator and the bundled MinIO chart both
+	// read these keys.
 	storageSecretSuffix      = "-minio"
-	storageSecretKeyUser     = "rootUser"
-	storageSecretKeyPassword = "rootPassword"
+	storageSecretKeyUser     = "accesskey"
+	storageSecretKeyPassword = "secretkey"
 	storageUserLength        = 20
 	storagePasswordLength    = 40
 )
