@@ -290,7 +290,7 @@ func BuildMilvusSpec(c *controller.Context) (milvusapi.MilvusSpec, error) {
 		}
 		applyServiceExposure(&spec.Com.Standalone.ServiceComponent, instance.Spec.Components[common.ComponentStandalone].Service)
 		spec.Dep = buildDependencies(c, topologyType)
-		spec.Com.ImageUpdateMode = imageUpdateMode(spec.Com)
+		applyImageUpdateMode(&spec.Com)
 		return spec, nil
 	}
 
@@ -311,40 +311,9 @@ func BuildMilvusSpec(c *controller.Context) (milvusapi.MilvusSpec, error) {
 	spec.Com.StreamingNode = &milvusapi.MilvusStreamingNode{Component: makeMilvusComponent(c, common.ComponentStreaming, images.resolve(common.ComponentStreaming))}
 	spec.Com.StreamingNode.Groups = applyDeploymentGroups(c, common.ComponentStreaming, &spec.Com.StreamingNode.Component)
 	spec.Dep = buildDependencies(c, topologyType)
-	spec.Com.ImageUpdateMode = imageUpdateMode(spec.Com)
+	applyImageUpdateMode(&spec.Com)
 
 	return spec, nil
-}
-
-// imageUpdateMode switches the operator to updating every image at once when
-// components run different images: its ordered rolling upgrade waits for each
-// component to reach the one instance-wide image and would never finish.
-func imageUpdateMode(com milvusapi.MilvusComponents) string {
-	var images []string
-	if com.Standalone != nil {
-		images = append(images, com.Standalone.Image)
-	}
-	if com.Proxy != nil {
-		images = append(images, com.Proxy.Image)
-	}
-	if com.MixCoord != nil {
-		images = append(images, com.MixCoord.Image)
-	}
-	if com.DataNode != nil {
-		images = append(images, com.DataNode.Image)
-	}
-	if com.QueryNode != nil {
-		images = append(images, com.QueryNode.Image)
-	}
-	if com.StreamingNode != nil {
-		images = append(images, com.StreamingNode.Image)
-	}
-	for _, image := range images {
-		if image != com.Image {
-			return milvusapi.ImageUpdateModeAll
-		}
-	}
-	return ""
 }
 
 // Validate checks if the Instance spec is valid.
@@ -403,7 +372,7 @@ func (p *Provider) Status(c *controller.Context) (controller.Status, error) {
 			return controller.Status{}, err
 		}
 
-		return controller.ReadyWithConnectionDetails(controller.ConnectionDetails{
+		details := controller.ConnectionDetails{
 			Type:     "milvus",
 			Provider: common.ProviderName,
 			Host:     host,
@@ -414,7 +383,14 @@ func (p *Provider) Status(c *controller.Context) (controller.Status, error) {
 			AdditionalProperties: map[string]string{
 				"token": fmt.Sprintf("%s:%s", username, password),
 			},
-		}), nil
+		}
+		// Milvus keeps serving during a rollout, so the connection stays published.
+		if message, rolling := rolloutMessage(cr); rolling {
+			status := controller.Updating(message)
+			status.ConnectionDetails = details
+			return status, nil
+		}
+		return controller.ReadyWithConnectionDetails(details), nil
 	case milvusapi.StatusPending, milvusapi.StatusDeleting:
 		return controller.Provisioning(notReadyMessage(cr, "Milvus is being initialized or updated")), nil
 	case milvusapi.StatusStopped:
@@ -446,6 +422,24 @@ func notReadyMessage(cr *milvusapi.Milvus, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+// rolloutMessage reports whether the operator is still rolling out the
+// applied spec, such as an upgrade, and describes its progress.
+func rolloutMessage(cr *milvusapi.Milvus) (string, bool) {
+	if cr.Status.ObservedGeneration < cr.Generation {
+		return "Milvus is applying the latest changes", true
+	}
+	for _, condition := range cr.Status.Conditions {
+		if condition.Type != milvusapi.ConditionMilvusUpdated || condition.Status != corev1.ConditionFalse {
+			continue
+		}
+		if condition.Message != "" {
+			return condition.Message, true
+		}
+		return "Milvus is updating: " + condition.Reason, true
+	}
+	return "", false
 }
 
 // Cleanup handles deletion of provider-managed resources.

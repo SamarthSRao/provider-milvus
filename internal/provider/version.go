@@ -57,6 +57,39 @@ func componentVersions(com milvusapi.MilvusComponents) map[string]string {
 	return versions
 }
 
+// applyImageUpdateMode picks how the operator rolls out new images. Its
+// dependency-ordered rolling upgrade moves each component only once the ones
+// it depends on run the instance-wide image, so it can finish only when every
+// component shares that image; components on different images are updated
+// all at once instead, or the upgrade would stall forever.
+func applyImageUpdateMode(com *milvusapi.MilvusComponents) {
+	shared, ok := sharedComponentImage(*com)
+	if !ok {
+		com.ImageUpdateMode = milvusapi.ImageUpdateModeAll
+		return
+	}
+	com.Image, com.Version = shared.image, shared.version
+	com.ImageUpdateMode = milvusapi.ImageUpdateModeRollingUpgrade
+}
+
+// sharedComponentImage returns the image and version every component runs,
+// or false when they differ.
+func sharedComponentImage(com milvusapi.MilvusComponents) (milvusImage, bool) {
+	shared := milvusImage{image: com.Image, version: com.Version}
+	first := true
+	for _, spec := range milvusComponentSpecs(com) {
+		image := milvusImage{image: spec.Image, version: spec.Version}
+		if first {
+			shared, first = image, false
+			continue
+		}
+		if image != shared {
+			return milvusImage{}, false
+		}
+	}
+	return shared, true
+}
+
 // milvusComponentSpecs returns the spec of every component present in com,
 // keyed by Instance component name.
 func milvusComponentSpecs(com milvusapi.MilvusComponents) map[string]milvusapi.ComponentSpec {

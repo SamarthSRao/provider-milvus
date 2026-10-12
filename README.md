@@ -331,8 +331,11 @@ Source of truth: [definition/versions.yaml](definition/versions.yaml).
 GPU bundles only switch images; request GPUs per component with
 `resources.limits["nvidia.com/gpu"]` and place the pods with `schedulingPolicy`.
 `spec.components.<name>.image` overrides a single component's image (e.g. a
-registry mirror); components on different images are updated all at once
-instead of in the operator's dependency order.
+registry mirror). Components sharing one image are upgraded one at a time in
+the operator's dependency order (`imageUpdateMode: rollingUpgrade`); components
+on different images are updated all at once (`all`), because the ordered
+upgrade can only finish once every component runs the same image. The Instance
+reports `Updating`, with the operator's progress, until the rollout completes.
 
 Versions only move forward. Milvus migrates its metadata when it upgrades, so
 a version older than the one deployed — for the bundle or for a single pinned

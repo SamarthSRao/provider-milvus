@@ -19,8 +19,16 @@ const (
 	MilvusModeStandalone MilvusMode = "standalone"
 )
 
-// ImageUpdateModeAll updates every component's image at once.
-const ImageUpdateModeAll = "all"
+const (
+	// ImageUpdateModeRollingUpgrade updates components one after another in
+	// the operator's dependency order.
+	ImageUpdateModeRollingUpgrade = "rollingUpgrade"
+	// ImageUpdateModeAll updates every component's image at once.
+	ImageUpdateModeAll = "all"
+)
+
+// ConditionMilvusUpdated is False while the operator rolls out a spec change.
+const ConditionMilvusUpdated = "MilvusUpdated"
 
 // MilvusHealthStatus describes the observed health of the Milvus control plane.
 type MilvusHealthStatus string
@@ -123,8 +131,6 @@ type MilvusStreamingNode struct {
 // MilvusComponents contains the concrete Milvus deployment components.
 type MilvusComponents struct {
 	ComponentSpec `json:",inline"`
-	// ImageUpdateMode "all" updates every component's image at once instead of
-	// the default dependency-ordered rolling upgrade.
 	ImageUpdateMode  string               `json:"imageUpdateMode,omitempty"`
 	Standalone       *MilvusStandalone    `json:"standalone,omitempty"`
 	Proxy            *MilvusProxy         `json:"proxy,omitempty"`
@@ -187,9 +193,10 @@ type MilvusDependencies struct {
 
 // MilvusStatus is the observed state of a Milvus deployment.
 type MilvusStatus struct {
-	Status     MilvusHealthStatus `json:"status,omitempty"`
-	Endpoint   string             `json:"endpoint,omitempty"`
-	Conditions []MilvusCondition  `json:"conditions,omitempty"`
+	Status             MilvusHealthStatus `json:"status,omitempty"`
+	Endpoint           string             `json:"endpoint,omitempty"`
+	Conditions         []MilvusCondition  `json:"conditions,omitempty"`
+	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 }
 
 // MilvusCondition is one readiness condition the operator reports.

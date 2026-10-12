@@ -37,14 +37,16 @@ spec:
         - assert:
             file: 10-assert.yaml
 
-    # Simulate the Milvus operator (scaled to 0) marking the CR Healthy. The
-    # provider then surfaces phase Ready and writes the connection Secret.
+    # Simulate the Milvus operator (scaled to 0) marking the CR Healthy and
+    # caught up with its spec. The provider then surfaces phase Ready and
+    # writes the connection Secret.
     - name: instance-ready
       try:
         - script:
             content: |
+              generation=$(kubectl get milvuses.milvus.io/test-instance -n $NAMESPACE -o jsonpath='{.metadata.generation}')
               kubectl patch milvuses.milvus.io/test-instance --subresource status -n $NAMESPACE \
-                -p '{"status":{"status":"Healthy"}}' --type=merge
+                -p "{\"status\":{\"status\":\"Healthy\",\"observedGeneration\":$generation}}" --type=merge
         - assert:
             file: 11-assert.yaml
 
