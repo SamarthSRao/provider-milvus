@@ -180,6 +180,21 @@ client = MilvusClient(uri="http://localhost:19530", token="root:<password>")
 client.create_collection("demo", dimension=8)
 ```
 
+### Rotate the root password
+
+The root password lives in the `<instance>-credentials` Secret. Change its
+`password` key and the provider updates the `root` user in Milvus once the
+instance is healthy, then publishes the new password to the connection Secret:
+
+```bash
+kubectl patch secret milvus-standalone-credentials --type merge \
+  -p '{"stringData":{"password":"<new-password>"}}'
+```
+
+Leave `appliedPassword` alone: it is the password Milvus currently accepts, and
+the provider needs it to authenticate the change. Until the rotation lands,
+the connection Secret keeps the old, working password.
+
 ### Expose it outside the cluster
 
 Set the service type on the client-facing component (`standalone` for standalone,
