@@ -631,6 +631,21 @@ func TestProviderStatus(t *testing.T) {
 		})
 	}
 
+	t.Run("unhealthy status is Updating while a rollout replaces pods", func(t *testing.T) {
+		c := newTestContext(t, corev1alpha1.InstanceSpec{})
+		cr := newMilvusCR(milvusapi.StatusUnhealthy, "")
+		cr.Status.Conditions = []milvusapi.MilvusCondition{
+			{Type: "MilvusReady", Status: corev1.ConditionFalse, Message: "[querynode] not ready"},
+			{Type: milvusapi.ConditionMilvusUpdated, Status: corev1.ConditionFalse, Message: "Milvus is performing rolling upgrade pending components[querynode]"},
+		}
+		require.NoError(t, c.Client().Create(context.Background(), cr))
+
+		status, err := New().Status(c)
+		require.NoError(t, err)
+		assert.Equal(t, corev1alpha1.InstancePhaseUpdating, status.Phase)
+		assert.Equal(t, "Milvus is performing rolling upgrade pending components[querynode]: MilvusReady: [querynode] not ready", status.Message)
+	})
+
 	t.Run("healthy status with an unresolved endpoint stays Provisioning", func(t *testing.T) {
 		c := newTestContext(t, corev1alpha1.InstanceSpec{})
 		cr := newMilvusCR(milvusapi.StatusHealthy, "")

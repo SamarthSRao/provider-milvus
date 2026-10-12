@@ -396,6 +396,10 @@ func (p *Provider) Status(c *controller.Context) (controller.Status, error) {
 	case milvusapi.StatusStopped:
 		return controller.Pending("Milvus is stopped"), nil
 	case milvusapi.StatusUnhealthy:
+		// Query nodes roll blue/green, so Milvus reports Unhealthy mid-rollout.
+		if message, rolling := rolloutMessage(cr); rolling {
+			return controller.Updating(notReadyMessage(cr, message)), nil
+		}
 		return controller.Provisioning(notReadyMessage(cr, "Milvus is unhealthy")), nil
 	default:
 		return controller.Provisioning("Milvus is initializing"), nil

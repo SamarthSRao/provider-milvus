@@ -40,8 +40,10 @@ check_components() {
 
 check_images() {
   local instance=$1 version=$2 images stale
+  # Query nodes roll blue/green: the idle group is scaled to 0 and keeps the old image.
   images=$(kubectl -n "$NAMESPACE" get deploy -l "app.kubernetes.io/instance=$instance,app.kubernetes.io/name=milvus" \
-    -o jsonpath='{range .items[*]}{.metadata.name}={.spec.template.spec.containers[0].image}{"\n"}{end}')
+    -o jsonpath='{range .items[*]}{.spec.replicas} {.metadata.name}={.spec.template.spec.containers[0].image}{"\n"}{end}' |
+    awk '$1 > 0 {print $2}')
   [[ -n "$images" ]] || fail "$instance has no Milvus deployments"
   stale=$(grep -v "=.*:v$version\$" <<<"$images" || true)
   [[ -z "$stale" ]] || fail "$instance not on $version: $stale"
