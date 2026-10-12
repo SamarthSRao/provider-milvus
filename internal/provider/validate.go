@@ -85,6 +85,10 @@ func validateInstance(c *controller.Context) error {
 		return err
 	}
 
+	if err := validateNoDowngrade(c); err != nil {
+		return err
+	}
+
 	if err := validateServiceExposure(instance.Spec.Components, topologyType); err != nil {
 		return err
 	}

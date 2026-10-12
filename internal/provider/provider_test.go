@@ -257,7 +257,27 @@ func TestBuildMilvusSpecComponentImages(t *testing.T) {
 		// The operator parses the version as semver, so the build suffix is dropped.
 		assert.Equal(t, "2.6.15", spec.Com.QueryNode.Version)
 		assert.Equal(t, "2.6.15", spec.Com.Version)
-		assert.Empty(t, spec.Com.ImageUpdateMode)
+		assert.Equal(t, milvusapi.ImageUpdateModeRollingUpgrade, spec.Com.ImageUpdateMode)
+	})
+
+	t.Run("components pinned to one release roll in order on its image", func(t *testing.T) {
+		pinned := corev1alpha1.ComponentSpec{Version: "2.6.15"}
+		c := newTestContextWithProviderSpec(t, gpuProviderSpec(), corev1alpha1.InstanceSpec{
+			Version:  "2.6.15-gpu",
+			Topology: &corev1alpha1.TopologySpec{Type: "cluster"},
+			Components: map[string]corev1alpha1.ComponentSpec{
+				common.ComponentProxy:     pinned,
+				common.ComponentMixCoord:  pinned,
+				common.ComponentDataNode:  pinned,
+				common.ComponentQueryNode: pinned,
+				common.ComponentStreaming: pinned,
+			},
+		})
+		spec, err := BuildMilvusSpec(c)
+		require.NoError(t, err)
+
+		assert.Equal(t, "milvusdb/milvus:v2.6.15", spec.Com.Image)
+		assert.Equal(t, milvusapi.ImageUpdateModeRollingUpgrade, spec.Com.ImageUpdateMode)
 	})
 
 	// Live clusters showed the ordered upgrade deadlocking on mixed images.
@@ -572,6 +592,63 @@ func TestProviderStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, corev1alpha1.InstancePhaseReady, status.Phase)
 		assert.Equal(t, "http://my-endpoint.db.svc.cluster.local:19530", status.ConnectionDetails.URI)
+	})
+
+	rolloutTests := []struct {
+		name        string
+		prepare     func(cr *milvusapi.Milvus)
+		wantMessage string
+	}{
+		{
+			name: "operator has not seen the latest spec",
+			prepare: func(cr *milvusapi.Milvus) {
+				cr.Generation = 3
+				cr.Status.ObservedGeneration = 2
+			},
+			wantMessage: "Milvus is applying the latest changes",
+		},
+		{
+			name: "rolling upgrade in progress",
+			prepare: func(cr *milvusapi.Milvus) {
+				cr.Status.Conditions = []milvusapi.MilvusCondition{{
+					Type:    milvusapi.ConditionMilvusUpdated,
+					Status:  corev1.ConditionFalse,
+					Reason:  "MilvusUpgradingImage",
+					Message: "Milvus is performing rolling upgrade pending components[queryNode]",
+				}}
+			},
+			wantMessage: "Milvus is performing rolling upgrade pending components[queryNode]",
+		},
+	}
+	for _, tt := range rolloutTests {
+		t.Run("healthy status is Updating while "+tt.name, func(t *testing.T) {
+			c := newTestContext(t, corev1alpha1.InstanceSpec{})
+			cr := newMilvusCR(milvusapi.StatusHealthy, "my-endpoint.db.svc.cluster.local:19530")
+			require.NoError(t, c.Client().Create(context.Background(), cr))
+			tt.prepare(cr)
+			require.NoError(t, c.Client().Update(context.Background(), cr))
+
+			status, err := New().Status(c)
+			require.NoError(t, err)
+			assert.Equal(t, corev1alpha1.InstancePhaseUpdating, status.Phase)
+			assert.Equal(t, tt.wantMessage, status.Message)
+			assert.Equal(t, "http://my-endpoint.db.svc.cluster.local:19530", status.ConnectionDetails.URI)
+		})
+	}
+
+	t.Run("unhealthy status is Updating while a rollout replaces pods", func(t *testing.T) {
+		c := newTestContext(t, corev1alpha1.InstanceSpec{})
+		cr := newMilvusCR(milvusapi.StatusUnhealthy, "")
+		cr.Status.Conditions = []milvusapi.MilvusCondition{
+			{Type: "MilvusReady", Status: corev1.ConditionFalse, Message: "[querynode] not ready"},
+			{Type: milvusapi.ConditionMilvusUpdated, Status: corev1.ConditionFalse, Message: "Milvus is performing rolling upgrade pending components[querynode]"},
+		}
+		require.NoError(t, c.Client().Create(context.Background(), cr))
+
+		status, err := New().Status(c)
+		require.NoError(t, err)
+		assert.Equal(t, corev1alpha1.InstancePhaseUpdating, status.Phase)
+		assert.Equal(t, "Milvus is performing rolling upgrade pending components[querynode]: MilvusReady: [querynode] not ready", status.Message)
 	})
 
 	t.Run("healthy status with an unresolved endpoint stays Provisioning", func(t *testing.T) {

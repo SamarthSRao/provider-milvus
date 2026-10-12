@@ -2,8 +2,9 @@
 # Live end-to-end run against a real cluster with OpenEverest and this provider
 # installed (operator running). For each instance in instances/: create it,
 # wait for Ready, check status.components and pod placement, run the data-plane
-# smoke test, then delete it and check nothing is left behind. The standalone
-# instance is also upgraded with data written before and verified after.
+# smoke test, then delete it and check nothing is left behind. Both instances
+# are also upgraded with data written before and verified after, and a
+# downgrade must be rejected.
 # Usage: test/e2e/run-matrix.sh [namespace]
 set -euo pipefail
 
@@ -11,6 +12,7 @@ NAMESPACE=${1:-milvus-e2e-run}
 DIR=$(cd "$(dirname "$0")" && pwd)
 READY_TIMEOUT=${READY_TIMEOUT:-900}
 UPGRADE_VERSION=${UPGRADE_VERSION:-2.6.11}
+DOWNGRADE_VERSION=${DOWNGRADE_VERSION:-2.6.10}
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 fail() { log "FAIL: $*"; kubectl -n "$NAMESPACE" get instance,milvus,pods -o wide || true; exit 1; }
@@ -34,6 +36,35 @@ check_components() {
   [[ -z "$not_ready" ]] || fail "$instance components not ready: $not_ready"
   [[ $(kubectl -n "$NAMESPACE" get instance "$instance" -o json | jq '.status.components | length') -gt 0 ]] ||
     fail "$instance reports no status.components"
+}
+
+check_images() {
+  local instance=$1 version=$2 images stale
+  # Query nodes roll blue/green: the idle group is scaled to 0 and keeps the old image.
+  images=$(kubectl -n "$NAMESPACE" get deploy -l "app.kubernetes.io/instance=$instance,app.kubernetes.io/name=milvus" \
+    -o jsonpath='{range .items[*]}{.spec.replicas} {.metadata.name}={.spec.template.spec.containers[0].image}{"\n"}{end}' |
+    awk '$1 > 0 {print $2}')
+  [[ -n "$images" ]] || fail "$instance has no Milvus deployments"
+  stale=$(grep -v "=.*:v$version\$" <<<"$images" || true)
+  [[ -z "$stale" ]] || fail "$instance not on $version: $stale"
+}
+
+upgrade() {
+  local instance=$1
+  kubectl -n "$NAMESPACE" patch instance "$instance" --type merge -p "{\"spec\":{\"version\":\"$UPGRADE_VERSION\"}}"
+  sleep 20
+  wait_ready "$instance"
+  check_images "$instance" "$UPGRADE_VERSION"
+}
+
+# Validation errors do not reach the Instance status on every core release, so
+# check the deployments instead: they must stay on the upgraded version.
+check_downgrade_rejected() {
+  local instance=$1
+  kubectl -n "$NAMESPACE" patch instance "$instance" --type merge -p "{\"spec\":{\"version\":\"$DOWNGRADE_VERSION\"}}"
+  sleep 30
+  check_images "$instance" "$UPGRADE_VERSION"
+  kubectl -n "$NAMESPACE" patch instance "$instance" --type merge -p "{\"spec\":{\"version\":\"$UPGRADE_VERSION\"}}"
 }
 
 check_spread() {
@@ -63,22 +94,21 @@ kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -
 log "creating instances"
 kubectl -n "$NAMESPACE" apply -f "$DIR/instances/"
 
-log "standalone: ready, smoke, upgrade with data"
+log "standalone: ready, smoke, upgrade with data, downgrade rejected"
 wait_ready e2e-standalone
 check_components e2e-standalone
 MODE=write "$DIR/run-smoke.sh" "$NAMESPACE" e2e-standalone
-kubectl -n "$NAMESPACE" patch instance e2e-standalone --type merge -p "{\"spec\":{\"version\":\"$UPGRADE_VERSION\"}}"
-sleep 20
-wait_ready e2e-standalone
-image=$(kubectl -n "$NAMESPACE" get deploy e2e-standalone-milvus-standalone -o jsonpath='{.spec.template.spec.containers[0].image}')
-[[ "$image" == *"v$UPGRADE_VERSION" ]] || fail "standalone still runs $image after upgrade"
+upgrade e2e-standalone
 MODE=verify "$DIR/run-smoke.sh" "$NAMESPACE" e2e-standalone
+check_downgrade_rejected e2e-standalone
 
-log "cluster: ready, placement, smoke"
+log "cluster: ready, placement, smoke, rolling upgrade with data"
 wait_ready e2e-cluster
 check_components e2e-cluster
 check_spread e2e-cluster queryNode
-"$DIR/run-smoke.sh" "$NAMESPACE" e2e-cluster
+MODE=write "$DIR/run-smoke.sh" "$NAMESPACE" e2e-cluster
+upgrade e2e-cluster
+MODE=verify "$DIR/run-smoke.sh" "$NAMESPACE" e2e-cluster
 
 log "deleting instances"
 delete_and_check e2e-standalone
