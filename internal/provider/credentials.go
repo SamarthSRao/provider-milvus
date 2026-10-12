@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/openeverest/openeverest/v2/provider-runtime/controller"
 
@@ -21,14 +22,28 @@ const (
 	// credentials are stored in the Secret.
 	secretKeyUsername = "username"
 	secretKeyPassword = "password"
+	// secretKeyAppliedPassword holds the password Milvus currently accepts; it
+	// differs from secretKeyPassword while a rotation is pending.
+	secretKeyAppliedPassword = "appliedPassword"
 	// passwordLength is the generated root password length. Milvus caps
 	// defaultRootPassword at 72 characters.
 	passwordLength = 24
+	// rootPasswordEnv overrides common.security.defaultRootPassword: Milvus
+	// ranks environment variables above its config files.
+	rootPasswordEnv = "COMMON_SECURITY_DEFAULTROOTPASSWORD"
+
+	// storageSecretSuffix matches the Secret the operator points Milvus at for
+	// bundled object storage; the operator and the bundled MinIO chart both
+	// read these keys.
+	storageSecretSuffix      = "-minio"
+	storageSecretKeyUser     = "accesskey"
+	storageSecretKeyPassword = "secretkey"
+	storageUserLength        = 20
+	storagePasswordLength    = 40
 )
 
 // passwordAlphabet excludes ambiguous characters and starts every generated
-// password with a letter, satisfying Milvus password rules and avoiding YAML
-// numeric-precision issues when the password is embedded into spec.config.
+// password with a letter, satisfying Milvus password rules.
 const (
 	passwordLetters  = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
 	passwordAlphabet = passwordLetters + "23456789"
@@ -38,10 +53,14 @@ func credentialsSecretName(instanceName string) string {
 	return instanceName + credentialsSecretSuffix
 }
 
+func storageSecretName(instanceName string) string {
+	return instanceName + storageSecretSuffix
+}
+
 // generatePassword returns a random password that starts with a letter and
 // draws the remaining characters from an unambiguous alphanumeric alphabet.
-func generatePassword() (string, error) {
-	out := make([]byte, passwordLength)
+func generatePassword(length int) (string, error) {
+	out := make([]byte, length)
 	if err := fillFromAlphabet(out[:1], passwordLetters); err != nil {
 		return "", err
 	}
@@ -62,53 +81,158 @@ func fillFromAlphabet(dst []byte, alphabet string) error {
 	return nil
 }
 
+// rootCredentials are the root password the user asked for and the one Milvus
+// currently accepts.
+type rootCredentials struct {
+	password        string
+	appliedPassword string
+}
+
+func (r rootCredentials) rotationPending() bool {
+	return r.password != r.appliedPassword
+}
+
 // ensureCredentials returns the root credentials for the instance, creating the
-// backing Secret with a freshly generated password on first reconcile. The
-// password is generated once and reused on every subsequent call so it stays
-// stable across reconciles and matches the value seeded into Milvus.
-func ensureCredentials(c *controller.Context) (username, password string, err error) {
-	secretName := credentialsSecretName(c.Name())
-
+// backing Secret with a freshly generated password on first reconcile.
+func ensureCredentials(c *controller.Context) (rootCredentials, error) {
 	existing := &corev1.Secret{}
-	if getErr := c.Get(existing, secretName); getErr == nil {
-		if pw := string(existing.Data[secretKeyPassword]); pw != "" {
-			return rootUsername, pw, nil
+	err := c.Get(existing, credentialsSecretName(c.Name()))
+	if err != nil && !apierrors.IsNotFound(err) {
+		return rootCredentials{}, fmt.Errorf("get credentials secret: %w", err)
+	}
+	if err == nil && len(existing.Data[secretKeyPassword]) > 0 {
+		creds := rootCredentials{
+			password:        string(existing.Data[secretKeyPassword]),
+			appliedPassword: string(existing.Data[secretKeyAppliedPassword]),
 		}
+		if creds.appliedPassword != "" {
+			return creds, nil
+		}
+		// Secrets from before rotation support hold only the seeded password.
+		creds.appliedPassword = creds.password
+		return creds, applyCredentialsSecret(c, creds)
 	}
 
-	password, err = generatePassword()
+	password, err := generatePassword(passwordLength)
 	if err != nil {
-		return "", "", err
+		return rootCredentials{}, err
 	}
+	creds := rootCredentials{password: password, appliedPassword: password}
+	return creds, applyCredentialsSecret(c, creds)
+}
 
+func applyCredentialsSecret(c *controller.Context, creds rootCredentials) error {
 	secret := &corev1.Secret{
-		ObjectMeta: c.ObjectMeta(secretName),
+		ObjectMeta: c.ObjectMeta(credentialsSecretName(c.Name())),
 		Type:       corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
-			secretKeyUsername: []byte(rootUsername),
-			secretKeyPassword: []byte(password),
+			secretKeyUsername:        []byte(rootUsername),
+			secretKeyPassword:        []byte(creds.password),
+			secretKeyAppliedPassword: []byte(creds.appliedPassword),
 		},
 	}
 	if err := c.Apply(secret); err != nil {
-		return "", "", fmt.Errorf("apply credentials secret: %w", err)
+		return fmt.Errorf("apply credentials secret: %w", err)
 	}
-	return rootUsername, password, nil
+	return nil
 }
 
-// applyAuthConfig enables authentication and seeds the initial root password on
-// the Milvus spec by deep-merging into spec.config. defaultRootPassword only
-// takes effect on first initialization; the operator carries it forward on
-// every reconcile without rotating an already-initialized root user.
-func applyAuthConfig(spec *milvusapi.MilvusSpec, password string) {
+// ensureGeneratedSecret returns the data of the named Secret, persisting
+// generated on first use so the values stay stable across reconciles.
+func ensureGeneratedSecret(c *controller.Context, name string, generated map[string][]byte) (map[string][]byte, error) {
+	existing := &corev1.Secret{}
+	if err := c.Get(existing, name); err == nil && hasAllKeys(existing.Data, generated) {
+		return existing.Data, nil
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: c.ObjectMeta(name),
+		Type:       corev1.SecretTypeOpaque,
+		Data:       generated,
+	}
+	if err := c.Apply(secret); err != nil {
+		return nil, fmt.Errorf("apply secret %s: %w", name, err)
+	}
+	return generated, nil
+}
+
+func hasAllKeys(data, want map[string][]byte) bool {
+	for key := range want {
+		if len(data[key]) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// applyAuthConfig enables authentication and seeds the initial root password
+// from the credentials Secret, so the password never lands in the Milvus CR or
+// the ConfigMap the operator renders from it. Milvus reads it only when it
+// first creates the root user.
+func applyAuthConfig(spec *milvusapi.MilvusSpec, credentialsSecret string) {
 	if spec.Conf == nil {
 		spec.Conf = milvusapi.Values{}
 	}
 	deepMergeValues(spec.Conf, map[string]any{
 		"common": map[string]any{
-			"security": map[string]any{
-				"authorizationEnabled": true,
-				"defaultRootPassword":  password,
+			"security": map[string]any{"authorizationEnabled": true},
+		},
+	})
+	spec.Com.Env = append(spec.Com.Env, corev1.EnvVar{
+		Name: rootPasswordEnv,
+		ValueFrom: &corev1.EnvVarSource{
+			SecretKeyRef: &corev1.SecretKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{Name: credentialsSecret},
+				Key:                  secretKeyPassword,
 			},
 		},
 	})
+}
+
+// applyStorageCredentials replaces the chart's default minioadmin credentials
+// of bundled object storage with generated per-instance ones.
+func applyStorageCredentials(c *controller.Context, spec *milvusapi.MilvusSpec) error {
+	if spec.Dep == nil || spec.Dep.Storage.External || spec.Dep.Storage.InCluster == nil {
+		return nil
+	}
+	generated, err := generatedStorageCredentials(c)
+	if err != nil || !generated {
+		return err
+	}
+
+	name := storageSecretName(c.Name())
+	user, err := generatePassword(storageUserLength)
+	if err != nil {
+		return err
+	}
+	password, err := generatePassword(storagePasswordLength)
+	if err != nil {
+		return err
+	}
+	if _, err := ensureGeneratedSecret(c, name, map[string][]byte{
+		storageSecretKeyUser:     []byte(user),
+		storageSecretKeyPassword: []byte(password),
+	}); err != nil {
+		return err
+	}
+	spec.Dep.Storage.InCluster.Values["existingSecret"] = name
+	return nil
+}
+
+// generatedStorageCredentials reports whether bundled object storage reads the
+// provider-generated Secret. Instances whose MinIO predates it keep the chart's
+// own Secret of the same name: pointing existingSecret at it makes Helm delete
+// it, and MinIO would come back with different root credentials.
+func generatedStorageCredentials(c *controller.Context) (bool, error) {
+	existing := &milvusapi.Milvus{}
+	if err := c.Get(existing, c.Name()); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, fmt.Errorf("get Milvus CR: %w", err)
+	}
+	if existing.Spec.Dep == nil || existing.Spec.Dep.Storage.External || existing.Spec.Dep.Storage.InCluster == nil {
+		return true, nil
+	}
+	return existing.Spec.Dep.Storage.InCluster.Values["existingSecret"] == storageSecretName(c.Name()), nil
 }

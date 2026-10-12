@@ -261,8 +261,7 @@ func buildStorage(param *dependencies.Storage) milvusapi.MilvusStorage {
 		"replicas": int(replicas),
 		// The operator's un-pinned default lands on the gated Docker Hub
 		// minio/minio image (ImagePullBackOff); pin the pullable pgsty/silo
-		// images. preserveOperatorDependencyValues keeps operator-injected keys
-		// (credentials, serviceAccount) so this override does not fight the operator.
+		// images.
 		"image":       map[string]any{"repository": "pgsty/silo", "tag": "RELEASE.2026-09-03T13-18-01Z"},
 		"mcImage":     map[string]any{"repository": "pgsty/mc", "tag": "RELEASE.2026-09-13T00-00-00Z"},
 		"persistence": map[string]any{"size": persistenceSize},
