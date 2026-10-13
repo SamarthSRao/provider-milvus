@@ -429,9 +429,9 @@ spec:
 <!-- BEGIN GENERATED: versions -->
 | Version bundle | Default |  |
 |---|---|---|
-| `2.6.15` | | |
+| `2.6.15` | ✅ | |
 | `2.6.15-gpu` | | GPU build of every component |
-| `2.6.11` | ✅ | |
+| `2.6.11` | | |
 | `2.6.10` | | |
 <!-- END GENERATED: versions -->
 

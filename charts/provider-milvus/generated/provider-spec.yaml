@@ -3,7 +3,7 @@
 spec:
   componentTypes:
     milvus:
-      defaultVersion: 2.6.11
+      defaultVersion: 2.6.15
       versions:
         - image: milvusdb/milvus:v2.6.15
           version: 2.6.15
@@ -2434,7 +2434,7 @@ spec:
               type: object
           type: object
       type: milvus
-  defaultVersion: 2.6.11
+  defaultVersion: 2.6.15
   release:
     version: 0.1.0
   topologies:
