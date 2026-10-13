@@ -47,6 +47,9 @@ func New() *Provider {
 				// Standalone Restores are not owned by the Instance they target.
 				controller.WatchExternal(&backupv1alpha1.Restore{},
 					handler.EnqueueRequestsFromMapFunc(enqueueRestoreInstance)),
+				// A finished scheduled run is what retention acts on.
+				controller.WatchExternal(&backupv1alpha1.Backup{},
+					handler.EnqueueRequestsFromMapFunc(enqueueScheduledBackupInstance)),
 			},
 		},
 		rootPassword: newMilvusRESTClient(),

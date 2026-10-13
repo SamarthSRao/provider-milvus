@@ -401,3 +401,16 @@ func enqueueScheduledBackup(_ context.Context, obj client.Object) []reconcile.Re
 	}
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: obj.GetNamespace(), Name: obj.GetName()}}}
 }
+
+// enqueueScheduledBackupInstance maps a scheduled Backup to its Instance, which
+// applies the schedule's retention.
+func enqueueScheduledBackupInstance(_ context.Context, obj client.Object) []reconcile.Request {
+	backup, ok := obj.(*backupv1alpha1.Backup)
+	if !ok || backup.Spec.ScheduleName == "" || backup.Spec.Origin.InstanceRef == nil {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{
+		Namespace: backup.Namespace,
+		Name:      backup.Spec.Origin.InstanceRef.Name,
+	}}}
+}
