@@ -47,6 +47,9 @@ func New() *Provider {
 				// Standalone Restores are not owned by the Instance they target.
 				controller.WatchExternal(&backupv1alpha1.Restore{},
 					handler.EnqueueRequestsFromMapFunc(enqueueRestoreInstance)),
+				// A finished scheduled run is what retention acts on.
+				controller.WatchExternal(&backupv1alpha1.Backup{},
+					handler.EnqueueRequestsFromMapFunc(enqueueScheduledBackupInstance)),
 			},
 		},
 		rootPassword: newMilvusRESTClient(),
@@ -366,7 +369,11 @@ func (p *Provider) Sync(c *controller.Context) error {
 	if err := syncDataSource(c); err != nil {
 		return err
 	}
-	return p.syncRootPassword(c, creds)
+	if err := p.syncRootPassword(c, creds); err != nil {
+		return err
+	}
+	// Last: a schedule error is a BackupConfigError, which ends the pass.
+	return syncBackupSchedules(c)
 }
 
 // Status computes the current status of the database instance.

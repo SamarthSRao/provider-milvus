@@ -6,6 +6,7 @@ require (
 	github.com/openeverest/openeverest/v2 v2.0.0-dev.4
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.94.1
 	github.com/prometheus/common v0.70.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/mod v0.41.0
 	k8s.io/api v0.37.1
