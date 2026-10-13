@@ -329,6 +329,8 @@ step:
   is active.
 - Disabled or removed schedules → the CronJob and its ConfigMap are deleted
   (selected by label). Their Backups stay.
+- The Instance controller watches Backups and re-queues the origin Instance
+  of scheduled ones, so retention runs as soon as a run finishes.
 - `BackupMirror`: `OperatorBackupType()` = `batchv1.Job`. `Mirror` returns a
   `Backup{name: job.Name, origin: instance, storageRef, classRef,
   scheduleName, parameters}` for Jobs carrying the schedule label, and nil
@@ -489,7 +491,7 @@ Milvus is healthy) and, last, `syncBackupSchedules(c)`. `Status` reports
 |---|---|---|
 | 0. Spike | Run milvus-backup v0.6.0 by hand as a Job against a provider-managed 2.6.15 instance | Done (section 13.1) |
 | 1. On-demand + seeding | BackupClass, `SyncBackup`, `CleanupBackup`, `SyncRestore` (same and other instance), `spec.dataSource` + Restoring phase, RBAC, unit tests | Done, tested live (section 13.1) |
-| 2. Schedules | CronJobs + Mirror + retention; chainsaw suite; e2e in `make test-e2e-live` | Next |
+| 2. Schedules | CronJobs + Mirror + retention, unit tests | Done, tested live (section 13.2). Chainsaw suite and e2e in `make test-e2e-live` still open |
 | 3. Polish | `BackupImporter`, `status.size`, custom CA for BackupStorage, UI review | Later |
 
 Prerequisite outside this work: bump the catalog default to ≥ 2.6.12 before
@@ -516,6 +518,26 @@ GA (section 4). Restores into the current default (2.6.11) are refused.
 - Wrong BackupStorage credentials: `Failed` with milvus-backup's error line.
 - Restore into a 2.6.11 instance: `Failed` with "restoring needs Milvus 2.6.12
   or newer".
+
+### 13.2 Live results, scheduled backups (same setup)
+
+- A `*/5 * * * *` schedule with count retention 2: each run's Job was
+  mirrored into a `Backup` (`scheduleName`, class, storage and origin set)
+  that reached `Succeeded` in about 5 seconds, stored as
+  `<rootPath>/src_every5_<n>`. Once a third run succeeded, the oldest Backup
+  and its data were deleted.
+- A schedule named `Nightly_Full` became the CronJob
+  `seeded2-nightly-full-4b00aead`. A `CRON_TZ=` prefix set
+  `BackupConfigured=False` (`InvalidSchedule`) and left the CronJob as it was.
+- A Restore into the instance suspended its CronJob while the instance was
+  `Restoring`, and the CronJob resumed when it finished.
+- Disabling a schedule deleted its CronJob and ConfigMap and kept its Backups.
+- A per-minute schedule against a BackupStorage with wrong credentials:
+  each run `Failed` with milvus-backup's error, and only the newest 3 failed
+  runs were kept.
+- Found live and fixed: retention never ran after a run finished, because
+  nothing re-queued the Instance. The Instance controller now watches
+  scheduled Backups.
 
 ## 14. Risks and open questions
 
