@@ -210,7 +210,7 @@ provider Helm values.
 | Operation | Job / ConfigMap name | Owner (controller ref) | Command |
 |---|---|---|---|
 | On-demand backup | `<backup>-mb` (hashed when > 63) | Backup | `create -n <mbName> [--filter] [--rbac]` |
-| Scheduled backup | created by the CronJob `<instance>-<schedule>-mb` | CronJob (Backup mirrored, section 8.2) | same |
+| Scheduled backup | `<cronjob>-<n>`, created by the CronJob `<instance>-<schedule>`; ConfigMap `<instance>-<schedule>` | CronJob (owned by the Instance; Backup mirrored, section 8.2) | same |
 | Restore | `<restore>-mr` | Restore | `restore -n <mbName> --rebuild_index [--drop_exist_collection] [--filter] [--suffix] [--rbac]` |
 | Delete | `<backup>-md` | Backup | `delete -n <mbName>` |
 
@@ -307,29 +307,45 @@ Size: v1 leaves `status.size` empty. Phase 3 reads `backup_meta` from storage
 
 ### 8.2 Scheduled backups
 
-`Sync` reconciles one CronJob per enabled `schedules[]` entry:
+`Sync` reconciles one CronJob per enabled `schedules[]` entry, as its last
+step:
 
-- `<instance>-<schedule>-mb`, `concurrencyPolicy: Forbid`,
+- `<instance>-<schedule>`, shortened with a hash when the schedule name is
+  not a DNS label or the result exceeds 52 characters (the CronJob controller
+  appends an 11-character suffix to Job names). Owned by the Instance.
+- `timeZone: Etc/UTC`, `concurrencyPolicy: Forbid`,
   `startingDeadlineSeconds: 300`, history limits 3/3. The Job template is the
   same as in section 8.1, except a small `sh` wrapper reads the Job's name from
   `JOB_NAME` (downward API on the pod label `batch.kubernetes.io/job-name`).
-  It maps the name per section 7.4 and passes it as `-n`.
-- Labels: `app.kubernetes.io/instance`,
-  `backup.milvus.openeverest.io/{schedule,storage,class}`.
-- Disabled or removed schedules → the CronJob is deleted (selected by label).
+  It maps the name per section 7.4 and passes it as `-n`. `CRON_TZ=`/`TZ=`
+  prefixes are rejected.
+- Labels on the CronJob, its ConfigMap and its Jobs:
+  `backup.milvus.openeverest.io/{instance,operation}` (shared with on-demand
+  Jobs, so on-demand operations wait for scheduled runs) and
+  `backup.milvus.openeverest.io/{schedule,storage}`.
+- The CronJob is applied only while Milvus is `Healthy`, because the Job
+  config comes from Milvus's rendered config. An existing CronJob is kept
+  meanwhile. `suspend: true` while the instance is being seeded or a Restore
+  is active.
+- Disabled or removed schedules → the CronJob and its ConfigMap are deleted
+  (selected by label). Their Backups stay.
 - `BackupMirror`: `OperatorBackupType()` = `batchv1.Job`. `Mirror` returns a
   `Backup{name: job.Name, origin: instance, storageRef, classRef,
-  scheduleName}` for Jobs carrying the schedule label, and nil otherwise.
+  scheduleName, parameters}` for Jobs carrying the schedule label, and nil
+  otherwise.
   `SyncBackup` sees `spec.scheduleName`, finds the Job by name and maps status
-  without creating anything. A missing Job → `Failed` ("scheduled job was
-  removed before completion").
+  without creating anything. A missing Job keeps a terminal state (the
+  CronJob history pruned it) and is `Failed` otherwise ("the scheduled
+  backup's Job was removed before it finished"). A `WatchExternal` on Jobs
+  maps scheduled Jobs to their Backups, since the Backup does not own them.
 
 Retention is enforced in `Sync`. For each schedule, list Backups with
 `spec.scheduleName == name` in state `Succeeded` and delete the ones outside
 `retention` (count: keep the newest N; time: `completedAt` older than the
 window). Deletion goes through `CleanupBackup`, so storage is purged unless
 the Backup says `Retain`. Failed scheduled Backups beyond 3 per schedule are
-deleted too, to bound clutter.
+deleted too, to bound clutter. Backups of schedules no longer in the spec are
+left alone.
 
 Wiring errors (unparsable cron, missing storage) return
 `controller.BackupConfigError`. The runtime surfaces that on the
@@ -409,7 +425,9 @@ When `spec.backup.enabled`:
   and every `storageRef` exists and is `s3`.
 - `verifyTLS: false`, or `forcePathStyle: true` with an AWS endpoint, is
   rejected (section 7.3).
-- Cron expressions parse (`robfig/cron/v3` standard parser).
+- Cron expressions parse (`robfig/cron/v3` standard parser). Checked in
+  `Sync` and reported as `BackupConfigError` (`InvalidSchedule`) on the
+  `BackupConfigured` condition.
 
 Versions below 2.6.12 can still be backed up. Restores into them are refused
 in `SyncRestore` (section 8.4).
@@ -437,11 +455,12 @@ definition/backupclasses/milvus-backup/{class.yaml,types.go,ui.yaml}
 internal/provider/backup_config.go  # milvus-backup config from the rendered Milvus config + BackupStorage
 internal/provider/backup_job.go     # Job/ConfigMap builder, naming, serialization, status mapping
 internal/provider/backup.go         # SyncBackup/SyncRestore/Cleanup*, watchers, seeding
+internal/provider/backup_schedule.go # CronJobs, retention, Mirror
 ```
 
 `Sync` calls `syncDataSource(c)` (which calls `c.ReconcileDataSource()` once
-Milvus is healthy). `Status` reports `Restoring` while seeding or a Restore
-runs. Schedules (`backup_schedule.go`, CronJobs + Mirror) are phase 2.
+Milvus is healthy) and, last, `syncBackupSchedules(c)`. `Status` reports
+`Restoring` while seeding or a Restore runs.
 
 ## 12. Testing
 
@@ -524,6 +543,8 @@ GA (section 4). Restores into the current default (2.6.11) are refused.
 6. **Restore load.** BulkInsert of large backups competes with live traffic,
    and the 2.6 import limits (`dataCoord.import.maxImportJobNum`) are tuned in
    Milvus config, not here. Expose throttling later if needed.
-7. **Schedules are silently ignored until phase 2.** The runtime never runs
-   schedules for ProviderManaged classes, so `spec.backup.storages[].schedules`
-   does nothing yet.
+7. **Scheduled runs are not serialized against on-demand ones.** The CronJob
+   starts its Job regardless of other milvus-backup Jobs for the instance;
+   on-demand operations do wait for scheduled runs. Overlap is harmless for
+   two backups, but a scheduled backup during a manual restore into the same
+   instance is avoided only by `suspend` (section 8.2).

@@ -26,8 +26,8 @@ import (
 	"github.com/openeverest/provider-milvus/internal/milvusapi"
 )
 
-// fakeClientBuilder knows every type the provider reads and the Restore index
-// the runtime registers.
+// fakeClientBuilder knows every type the provider reads and the Backup and
+// Restore indexes the runtime registers.
 func fakeClientBuilder(t *testing.T) *fake.ClientBuilder {
 	t.Helper()
 	scheme := runtime.NewScheme()
@@ -45,6 +45,13 @@ func fakeClientBuilder(t *testing.T) *fake.ClientBuilder {
 				return nil
 			}
 			return []string{restore.Spec.InstanceRef.Name}
+		}).
+		WithIndex(&backupv1alpha1.Backup{}, controller.IndexBackupInstanceName, func(obj client.Object) []string {
+			backup, ok := obj.(*backupv1alpha1.Backup)
+			if !ok || backup.Spec.Origin.InstanceRef == nil {
+				return nil
+			}
+			return []string{backup.Spec.Origin.InstanceRef.Name}
 		})
 }
 

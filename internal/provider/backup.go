@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -64,9 +65,10 @@ func decodeParameters(raw *runtime.RawExtension, into any) error {
 	return json.Unmarshal(raw.Raw, into)
 }
 
-// SyncBackup runs `milvus-backup create` in a Job owned by the Backup.
+// SyncBackup runs `milvus-backup create` in a Job owned by the Backup, or
+// reports the CronJob Job a scheduled Backup mirrors.
 func (p *Provider) SyncBackup(c *controller.Context, backup *backupv1alpha1.Backup) (controller.BackupExecutionStatus, error) {
-	name := backupJobName(backup.Name, operationCreate)
+	name := createJobName(backup)
 	pending := func(message string) (controller.BackupExecutionStatus, error) {
 		return controller.BackupExecutionStatus{State: backupv1alpha1.BackupStatePending, Message: message}, nil
 	}
@@ -80,7 +82,7 @@ func (p *Provider) SyncBackup(c *controller.Context, backup *backupv1alpha1.Back
 	}
 	if job == nil {
 		if backup.Spec.ScheduleName != "" {
-			return failed("scheduled backups are not supported yet")
+			return scheduledRunWithoutJob(backup), nil
 		}
 		var params milvusbackup.MilvusBackupParameters
 		if err := decodeParameters(backup.Spec.Parameters, &params); err != nil {
@@ -247,7 +249,7 @@ func (p *Provider) CleanupBackup(c *controller.Context, backup *backupv1alpha1.B
 // backup. The runtime already moved the Backup to Deleting, so the create Job
 // is what still knows; without it, a completion time is the best evidence.
 func backupProducedData(c *controller.Context, backup *backupv1alpha1.Backup) (bool, error) {
-	job, err := existingJob(c, backup.Namespace, backupJobName(backup.Name, operationCreate))
+	job, err := existingJob(c, backup.Namespace, createJobName(backup))
 	if err != nil {
 		return false, err
 	}
@@ -371,7 +373,10 @@ func (p *Provider) CleanupRestore(_ *controller.Context, _ *backupv1alpha1.Resto
 
 // BackupWatches routes Job status changes straight to the owning Backup.
 func (p *Provider) BackupWatches() []controller.WatchConfig {
-	return []controller.WatchConfig{controller.WatchOwned(&batchv1.Job{})}
+	return []controller.WatchConfig{
+		controller.WatchOwned(&batchv1.Job{}),
+		controller.WatchExternal(&batchv1.Job{}, handler.EnqueueRequestsFromMapFunc(enqueueScheduledBackup)),
+	}
 }
 
 // RestoreWatches routes Job status changes straight to the owning Restore.

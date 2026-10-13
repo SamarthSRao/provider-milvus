@@ -164,12 +164,7 @@ func backupJobImage() string {
 // returns the live Job. The Job never changes after creation.
 func ensureBackupJob(c *controller.Context, spec backupJobSpec) (*batchv1.Job, error) {
 	name := backupJobName(spec.owner.GetName(), spec.op)
-	labels := map[string]string{
-		"app.kubernetes.io/name":       "milvus-backup",
-		"app.kubernetes.io/managed-by": "provider-milvus",
-		backupJobInstanceLabel:         spec.instance,
-		backupJobOperationLabel:        string(spec.op),
-	}
+	labels := backupJobLabels(spec.instance, spec.op)
 
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: spec.namespace}}
 	if _, err := controllerutil.CreateOrUpdate(c.Context(), c.Client(), cm, func() error {
@@ -191,48 +186,7 @@ func ensureBackupJob(c *controller.Context, spec backupJobSpec) (*batchv1.Job, e
 
 	job = &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: spec.namespace, Labels: labels},
-		Spec: batchv1.JobSpec{
-			// A retried create would collide with the half-written backup.
-			BackoffLimit: ptr.To(int32(0)),
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec: corev1.PodSpec{
-					RestartPolicy:                corev1.RestartPolicyNever,
-					ServiceAccountName:           spec.saName,
-					AutomountServiceAccountToken: ptr.To(spec.saName != ""),
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot:   ptr.To(true),
-						RunAsUser:      ptr.To(int64(65532)),
-						RunAsGroup:     ptr.To(int64(65532)),
-						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
-					},
-					Containers: []corev1.Container{{
-						Name:                     "milvus-backup",
-						Image:                    backupJobImage(),
-						Command:                  []string{"/app/milvus-backup"},
-						Args:                     append(spec.args, "--config", "/etc/milvus-backup/backup.yaml"),
-						Env:                      spec.env,
-						Resources:                backupJobResources(),
-						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
-						SecurityContext: &corev1.SecurityContext{
-							AllowPrivilegeEscalation: ptr.To(false),
-							ReadOnlyRootFilesystem:   ptr.To(true),
-							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-						},
-						VolumeMounts: []corev1.VolumeMount{
-							{Name: "config", MountPath: "/etc/milvus-backup", ReadOnly: true},
-							{Name: "tmp", MountPath: "/tmp"},
-						},
-					}},
-					Volumes: []corev1.Volume{
-						{Name: "config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{Name: name},
-						}}},
-						{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-					},
-				},
-			},
-		},
+		Spec:       backupJobTemplate(spec, name, labels),
 	}
 	if err := controllerutil.SetControllerReference(spec.owner, job, c.Client().Scheme()); err != nil {
 		return nil, err
@@ -241,6 +195,62 @@ func ensureBackupJob(c *controller.Context, spec backupJobSpec) (*batchv1.Job, e
 		return nil, fmt.Errorf("create milvus-backup job: %w", err)
 	}
 	return job, nil
+}
+
+func backupJobLabels(instance string, op backupOperation) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":       "milvus-backup",
+		"app.kubernetes.io/managed-by": "provider-milvus",
+		backupJobInstanceLabel:         instance,
+		backupJobOperationLabel:        string(op),
+	}
+}
+
+// backupJobTemplate is the Job spec of every milvus-backup run, on demand or
+// scheduled; configName is the ConfigMap holding its config file.
+func backupJobTemplate(spec backupJobSpec, configName string, labels map[string]string) batchv1.JobSpec {
+	return batchv1.JobSpec{
+		// A retried create would collide with the half-written backup.
+		BackoffLimit: ptr.To(int32(0)),
+		Template: corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{Labels: labels},
+			Spec: corev1.PodSpec{
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           spec.saName,
+				AutomountServiceAccountToken: ptr.To(spec.saName != ""),
+				SecurityContext: &corev1.PodSecurityContext{
+					RunAsNonRoot:   ptr.To(true),
+					RunAsUser:      ptr.To(int64(65532)),
+					RunAsGroup:     ptr.To(int64(65532)),
+					SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+				},
+				Containers: []corev1.Container{{
+					Name:                     "milvus-backup",
+					Image:                    backupJobImage(),
+					Command:                  []string{"/app/milvus-backup"},
+					Args:                     append(append([]string{}, spec.args...), "--config", "/etc/milvus-backup/backup.yaml"),
+					Env:                      spec.env,
+					Resources:                backupJobResources(),
+					TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+					SecurityContext: &corev1.SecurityContext{
+						AllowPrivilegeEscalation: ptr.To(false),
+						ReadOnlyRootFilesystem:   ptr.To(true),
+						Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{Name: "config", MountPath: "/etc/milvus-backup", ReadOnly: true},
+						{Name: "tmp", MountPath: "/tmp"},
+					},
+				}},
+				Volumes: []corev1.Volume{
+					{Name: "config", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: configName},
+					}}},
+					{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+				},
+			},
+		},
+	}
 }
 
 // activeBackupJob returns another unfinished milvus-backup Job of the

@@ -84,7 +84,7 @@ Stateful workloads additionally report:
 | Persistent storage | ✅ | Object storage (MinIO) sized via the component `storage` |
 | Storage expansion | ❌ | |
 | Backups (on demand) | ✅ | `milvus-backup` BackupClass; runs the upstream [milvus-backup](https://github.com/zilliztech/milvus-backup) tool into an S3-compatible BackupStorage |
-| Backups (scheduled) | ❌ | |
+| Backups (scheduled) | ✅ | Cron schedules in `spec.backup`, run as CronJobs, with count- or time-based retention |
 | Point-in-time recovery | ❌ | |
 | Restore | ✅ | Into an existing instance or a new one (`spec.dataSource`); needs Milvus 2.6.12 or newer |
 
@@ -374,6 +374,43 @@ spec:
   wait in `Pending`.
 - milvus-backup cannot skip TLS verification, so BackupStorages with
   `verifyTLS: false` on an `https` endpoint are rejected.
+
+#### Scheduled backups
+
+Schedules live on the instance. Each enabled schedule becomes a CronJob
+(`<instance>-<schedule>`), and every run shows up as a Backup named after its
+Job, with `spec.scheduleName` set:
+
+```yaml
+spec:
+  backup:
+    enabled: true
+    classRef:
+      name: milvus-backup
+    storages:
+      - storageRef:
+          name: my-s3
+        schedules:
+          - name: nightly
+            enabled: true
+            cron: "0 3 * * *"       # standard 5-field cron, in UTC
+            retention:
+              type: count          # or type: time with duration: 7d / 2w / 1m
+              count: 7
+            parameters:
+              collections: "default.*"
+```
+
+- Retention deletes the oldest successful runs of each schedule, together
+  with their data unless the Backup's `deletionPolicy` is `Retain`. Only the
+  newest 3 failed runs per schedule are kept. Backups taken on demand, and
+  runs of a schedule that was removed, are never deleted by retention.
+- Disabling or removing a schedule deletes its CronJob; its Backups stay.
+- Schedules are suspended while the instance is being restored or seeded.
+  A run that would have started then is skipped, not delayed.
+- Runs that overlap are skipped. Scheduled runs do not wait for on-demand
+  backups, restores or deletions of the same instance; on-demand ones do wait
+  for scheduled runs.
 
 ## Topologies
 

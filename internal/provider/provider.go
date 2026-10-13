@@ -366,7 +366,11 @@ func (p *Provider) Sync(c *controller.Context) error {
 	if err := syncDataSource(c); err != nil {
 		return err
 	}
-	return p.syncRootPassword(c, creds)
+	if err := p.syncRootPassword(c, creds); err != nil {
+		return err
+	}
+	// Last: a schedule error is a BackupConfigError, which ends the pass.
+	return syncBackupSchedules(c)
 }
 
 // Status computes the current status of the database instance.
