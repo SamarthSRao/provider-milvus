@@ -14,7 +14,7 @@ spec:
   providerRef:
     name: milvus
   # Optional: pin the Milvus version bundle. Omit to use the provider default.
-  version: "2.6.11"
+  version: "2.6.15"
   topology:
     type: standalone
     # Object storage (MinIO) PVC size lives on the storage dependency, not on

@@ -83,7 +83,7 @@ Checked against the v0.6.0 source and docs:
   collections to be loadable.
 - 2.6 targets must be **≥ 2.6.12** for restore. Older versions hit an L0
   compaction bug during BulkInsert (milvus-io/milvus#48114). Our catalog ships
-  2.6.10 and 2.6.11 (default 2.6.11).
+  2.6.10, 2.6.11 and 2.6.15 (default 2.6.15).
 - On Milvus 2.6 the backup format is `binlog`, streamed through the
   milvus-backup pod (`transfer.mode: auto`). The `snapshot` format needs
   Milvus ≥ 3.0.1.
@@ -494,8 +494,8 @@ Milvus is healthy) and, last, `syncBackupSchedules(c)`. `Status` reports
 | 2. Schedules | CronJobs + Mirror + retention, unit tests | Done, tested live (section 13.2). Chainsaw suite and e2e in `make test-e2e-live` still open |
 | 3. Polish | `BackupImporter`, `status.size`, custom CA for BackupStorage, UI review | Later |
 
-Prerequisite outside this work: bump the catalog default to ≥ 2.6.12 before
-GA (section 4). Restores into the current default (2.6.11) are refused.
+The catalog default is 2.6.15, so new instances can be restored into. Older
+bundles (2.6.10, 2.6.11) can still be backed up but refuse restores.
 
 ### 13.1 Live results (LKE, OpenEverest 2.0.0-dev.4, milvus-operator 1.3.9, milvus-backup 0.6.0)
 

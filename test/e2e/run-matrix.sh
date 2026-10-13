@@ -11,7 +11,7 @@ set -euo pipefail
 NAMESPACE=${1:-milvus-e2e-run}
 DIR=$(cd "$(dirname "$0")" && pwd)
 READY_TIMEOUT=${READY_TIMEOUT:-900}
-UPGRADE_VERSION=${UPGRADE_VERSION:-2.6.11}
+UPGRADE_VERSION=${UPGRADE_VERSION:-2.6.15}
 DOWNGRADE_VERSION=${DOWNGRADE_VERSION:-2.6.10}
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }

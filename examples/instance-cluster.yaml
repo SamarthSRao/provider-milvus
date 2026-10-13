@@ -17,7 +17,7 @@ metadata:
 spec:
   providerRef:
     name: milvus
-  version: "2.6.11"
+  version: "2.6.15"
   topology:
     type: cluster
     # Tune the operator-managed dependencies (etcd, MinIO, optional Pulsar).
