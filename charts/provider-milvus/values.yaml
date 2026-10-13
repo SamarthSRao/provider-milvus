@@ -159,6 +159,18 @@ extraVolumeMounts: []
 # -- Additional volumes to add to the pod
 extraVolumes: []
 
+# Backups and restores run the upstream milvus-backup tool as Jobs.
+backup:
+  # -- milvus-backup image; override for air-gapped registries.
+  image: docker.io/milvusdb/milvus-backup:v0.6.0
+  # -- Resources of the backup, restore and delete Jobs.
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
 # -- Leader election configuration
 leaderElection:
   # -- Enable leader election (recommended for HA deployments)

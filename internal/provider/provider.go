@@ -6,12 +6,15 @@ import (
 	"strings"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 
+	backupv1alpha1 "github.com/openeverest/openeverest/v2/api/backup/v1alpha1"
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
 	"github.com/openeverest/openeverest/v2/provider-runtime/controller"
 	"github.com/openeverest/provider-milvus/definition/components"
@@ -36,10 +39,14 @@ func New() *Provider {
 			SchemeFuncs: []func(*runtime.Scheme) error{
 				milvusapi.AddToScheme,
 				monitoringv1.AddToScheme,
+				batchv1.AddToScheme,
 			},
 			WatchConfigs: []controller.WatchConfig{
 				controller.WatchOwned(&milvusapi.Milvus{}),
 				controller.WatchOwned(&corev1.Secret{}, credentialsSecretChanged()),
+				// Standalone Restores are not owned by the Instance they target.
+				controller.WatchExternal(&backupv1alpha1.Restore{},
+					handler.EnqueueRequestsFromMapFunc(enqueueRestoreInstance)),
 			},
 		},
 		rootPassword: newMilvusRESTClient(),
@@ -356,6 +363,9 @@ func (p *Provider) Sync(c *controller.Context) error {
 	if err := syncPodMonitor(c); err != nil {
 		return err
 	}
+	if err := syncDataSource(c); err != nil {
+		return err
+	}
 	return p.syncRootPassword(c, creds)
 }
 
@@ -367,6 +377,17 @@ func (p *Provider) Status(c *controller.Context) (controller.Status, error) {
 	cr := &milvusapi.Milvus{}
 	if err := c.Get(cr, c.Name()); err != nil {
 		return controller.Provisioning("waiting for Milvus CR to be created"), nil
+	}
+	// Connection details are published only once seeding has finished.
+	if ds := c.GetDataSourceStatus(); ds != nil && !ds.Done {
+		return controller.Restoring(ds.Message), nil
+	}
+	restoring, err := activeRestore(c)
+	if err != nil {
+		return controller.Status{}, err
+	}
+	if restoring {
+		return controller.Restoring("a restore is running"), nil
 	}
 
 	switch cr.Status.Status {

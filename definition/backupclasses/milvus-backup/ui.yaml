@@ -1,0 +1,53 @@
+# UI rendering hints for the milvus-backup BackupClass, grouped by the modal
+# that renders them. Inlined verbatim under spec.uiSchema.
+
+backup:
+  label: Backup configuration
+  components:
+    collections:
+      uiType: text
+      path: parameters.collections
+      fieldParams:
+        label: Collections
+        placeholder: "db.collection, db2.*"
+        helperText: "Leave empty to back up every collection."
+    includeRBAC:
+      uiType: toggle
+      path: parameters.includeRBAC
+      fieldParams:
+        label: Include users and roles
+  componentsOrder:
+    - collections
+    - includeRBAC
+restore:
+  label: Restore configuration
+  components:
+    collections:
+      uiType: text
+      path: parameters.collections
+      fieldParams:
+        label: Collections
+        placeholder: "db.collection, db2.*"
+        helperText: "Leave empty to restore every collection in the backup."
+    collectionSuffix:
+      uiType: text
+      path: parameters.collectionSuffix
+      fieldParams:
+        label: Collection name suffix
+        helperText: "Restores next to the existing collections instead of replacing them."
+    keepExistingCollections:
+      uiType: toggle
+      path: parameters.keepExistingCollections
+      fieldParams:
+        label: Keep existing collections
+        helperText: "By default a collection that already exists is dropped and replaced. Collections that are not in the backup are never touched."
+    includeRBAC:
+      uiType: toggle
+      path: parameters.includeRBAC
+      fieldParams:
+        label: Restore users and roles
+  componentsOrder:
+    - collections
+    - collectionSuffix
+    - keepExistingCollections
+    - includeRBAC

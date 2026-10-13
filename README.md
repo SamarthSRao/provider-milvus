@@ -83,10 +83,10 @@ Stateful workloads additionally report:
 |---|---|---|
 | Persistent storage | ✅ | Object storage (MinIO) sized via the component `storage` |
 | Storage expansion | ❌ | |
-| Backups (on demand) | ❌ | |
+| Backups (on demand) | ✅ | `milvus-backup` BackupClass; runs the upstream [milvus-backup](https://github.com/zilliztech/milvus-backup) tool into an S3-compatible BackupStorage |
 | Backups (scheduled) | ❌ | |
 | Point-in-time recovery | ❌ | |
-| Restore | ❌ | |
+| Restore | ✅ | Into an existing instance or a new one (`spec.dataSource`); needs Milvus 2.6.12 or newer |
 
 ## Installation
 
@@ -317,6 +317,63 @@ spec:
           podMonitorLabels:
             release: kube-prometheus-stack
 ```
+
+### Back up and restore
+
+Backups use the `milvus-backup` BackupClass. For each Backup, Restore or
+deletion the provider runs the upstream milvus-backup CLI as a Job in the
+instance's namespace (`<backup>-mb`, `<restore>-mr`, `<backup>-md`); its log is
+the place to look when one fails. Backups copy the collections' data and index
+definitions to the BackupStorage under
+`everest/milvus/<namespace>/<instance>/<backup>`, and restores rebuild the
+indexes.
+
+```yaml
+apiVersion: backup.openeverest.io/v1alpha1
+kind: Backup
+metadata:
+  name: before-reindex
+spec:
+  origin:
+    type: Instance
+    instanceRef:
+      name: my-milvus
+  classRef:
+    name: milvus-backup
+  storageRef:
+    name: my-s3            # an s3 BackupStorage in the same namespace
+  parameters:
+    collections: "default.docs"   # optional; empty backs up every collection
+---
+apiVersion: backup.openeverest.io/v1alpha1
+kind: Restore
+metadata:
+  name: undo-reindex
+spec:
+  instanceRef:
+    name: my-milvus
+  dataSource:
+    type: Backup
+    backup:
+      backupRef:
+        name: before-reindex
+```
+
+- A restore replaces each collection in the backup with its backed-up contents.
+  Collections that are not in the backup are left alone. Set
+  `parameters.collectionSuffix` to restore next to the existing collections
+  instead.
+- Restores need Milvus 2.6.12 or newer: older 2.6 releases corrupt the
+  restored data (milvus-io/milvus#48114). Backups work on every version.
+- A new instance can start from a backup with `spec.dataSource`; it must list
+  the backup's storage in `spec.backup.storages`. The instance stays
+  `Restoring` until the data is in.
+- Writes during a backup are not frozen: each collection is consistent with
+  itself, but not with the others.
+- Only one backup, restore or deletion runs per instance at a time; the others
+  wait in `Pending`.
+- milvus-backup cannot skip TLS verification, so BackupStorages with
+  `verifyTLS: false` on an `https` endpoint are rejected.
 
 ## Topologies
 

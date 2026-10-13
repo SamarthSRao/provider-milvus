@@ -1,0 +1,22 @@
+# milvus-backup BackupClass definition.
+# This file is the source of truth for the generated BackupClass manifest.
+#
+# Co-located files:
+#   ui.yaml  — UI rendering hints, inlined verbatim under spec.uiSchema.
+#   types.go — Go types referenced below; OpenAPI-extracted by provider-sdk generate.
+
+displayName: Milvus Backup
+description: |
+  Logical backups of Milvus collections taken with the upstream milvus-backup
+  tool. Raw data and index definitions are copied to an S3-compatible
+  BackupStorage, and indexes are rebuilt on restore. Point-in-time recovery is
+  not supported.
+executionMode: ProviderManaged
+parametersSchema:
+    openAPIV3Schema: MilvusBackupParameters
+providerManaged:
+    supportsPITR: false
+restoreParametersSchema:
+    openAPIV3Schema: MilvusRestoreParameters
+supportedProviders:
+    - milvus
