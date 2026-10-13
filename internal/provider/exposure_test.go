@@ -8,9 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
 	"github.com/openeverest/openeverest/v2/provider-runtime/controller"
@@ -21,18 +19,13 @@ import (
 
 func newTestContextWithObjects(t *testing.T, spec corev1alpha1.InstanceSpec, objs ...client.Object) *controller.Context {
 	t.Helper()
-	scheme := runtime.NewScheme()
-	require.NoError(t, corev1alpha1.AddToScheme(scheme))
-	require.NoError(t, corev1.AddToScheme(scheme))
-	require.NoError(t, milvusapi.AddToScheme(scheme))
-
 	instance := &corev1alpha1.Instance{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-milvus", Namespace: "db"},
 		Spec:       spec,
 	}
 	provider := &corev1alpha1.Provider{ObjectMeta: metav1.ObjectMeta{Name: common.ProviderName}}
 	all := append([]client.Object{instance, provider}, objs...)
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(all...).Build()
+	fakeClient := fakeClientBuilder(t).WithObjects(all...).Build()
 	return controller.NewContext(context.Background(), fakeClient, instance, common.ProviderName)
 }
 

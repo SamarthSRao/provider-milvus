@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -33,12 +32,6 @@ func configParams(t *testing.T, cfg string) *runtime.RawExtension {
 
 func newTestContext(t *testing.T, spec corev1alpha1.InstanceSpec) *controller.Context {
 	t.Helper()
-	scheme := runtime.NewScheme()
-	require.NoError(t, corev1alpha1.AddToScheme(scheme))
-	require.NoError(t, corev1.AddToScheme(scheme))
-	require.NoError(t, milvusapi.AddToScheme(scheme))
-	require.NoError(t, monitoringv1.AddToScheme(scheme))
-
 	instance := &corev1alpha1.Instance{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-milvus", Namespace: "db"},
 		Spec:       spec,
@@ -46,7 +39,7 @@ func newTestContext(t *testing.T, spec corev1alpha1.InstanceSpec) *controller.Co
 	provider := &corev1alpha1.Provider{
 		ObjectMeta: metav1.ObjectMeta{Name: common.ProviderName},
 	}
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance, provider).Build()
+	fakeClient := fakeClientBuilder(t).WithObjects(instance, provider).Build()
 	return controller.NewContext(context.Background(), fakeClient, instance, common.ProviderName)
 }
 
@@ -227,9 +220,6 @@ func gpuProviderSpec() corev1alpha1.ProviderSpec {
 
 func newTestContextWithProviderSpec(t *testing.T, providerSpec corev1alpha1.ProviderSpec, spec corev1alpha1.InstanceSpec) *controller.Context {
 	t.Helper()
-	scheme := runtime.NewScheme()
-	require.NoError(t, corev1alpha1.AddToScheme(scheme))
-	require.NoError(t, milvusapi.AddToScheme(scheme))
 	instance := &corev1alpha1.Instance{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-milvus", Namespace: "db"},
 		Spec:       spec,
@@ -238,7 +228,7 @@ func newTestContextWithProviderSpec(t *testing.T, providerSpec corev1alpha1.Prov
 		ObjectMeta: metav1.ObjectMeta{Name: common.ProviderName},
 		Spec:       providerSpec,
 	}
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance, provider).Build()
+	fakeClient := fakeClientBuilder(t).WithObjects(instance, provider).Build()
 	return controller.NewContext(context.Background(), fakeClient, instance, common.ProviderName)
 }
 

@@ -57,6 +57,21 @@ func componentVersions(com milvusapi.MilvusComponents) map[string]string {
 	return versions
 }
 
+// lowestComponentVersion is the oldest valid Milvus version any component
+// runs, or empty when none is known.
+func lowestComponentVersion(com milvusapi.MilvusComponents) string {
+	lowest := ""
+	for _, version := range componentVersions(com) {
+		if !semver.IsValid("v" + version) {
+			continue
+		}
+		if lowest == "" || semver.Compare("v"+version, "v"+lowest) < 0 {
+			lowest = version
+		}
+	}
+	return lowest
+}
+
 // applyImageUpdateMode picks how the operator rolls out new images. Its
 // dependency-ordered rolling upgrade moves each component only once the ones
 // it depends on run the instance-wide image, so it can finish only when every

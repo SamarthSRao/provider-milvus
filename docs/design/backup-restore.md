@@ -1,9 +1,9 @@
 # Design: Backup and restore for Milvus
 
-- Status: Draft
+- Status: Phase 1 (on-demand backups, restores, seeding) implemented and tested live
 - Issues: #9 (backup integration), #10 (restore workflows)
 - Roadmap: Phase 4
-- Last updated: 2026-10-12
+- Last updated: 2026-10-13
 
 ## 1. Summary
 
@@ -100,6 +100,11 @@ Checked against the v0.6.0 source and docs:
   binlogs).
 - `delete` needs only the backup storage. It refuses to delete when it cannot
   read the backup's meta and errors on unknown names.
+- `create` creates a missing backup bucket instead of failing.
+- etcd is read only with `--backup_index_extra`, which we do not pass, so the
+  Jobs never need etcd access.
+- File logging defaults to `logs/` in the working directory; with a
+  read-only root filesystem `log.file.path` must point into `/tmp`.
 - The S3 client is minio-go. There is no option to skip TLS verification, and
   bucket lookup is automatic (path-style for non-AWS endpoints).
 - Relevant flags:
@@ -168,36 +173,35 @@ providerManaged:
 
 ```go
 type MilvusBackupParameters struct {
-    // Collections limits the backup, in milvus-backup --filter syntax
-    // ("coll", "db.coll", "db.*"). Empty backs up every collection.
-    Collections []string `json:"collections,omitempty"`
-    // IncludeRBAC also backs up users, roles and grants. Default false.
+    // Collections limits the backup to a comma-separated list in
+    // milvus-backup --filter syntax ("coll", "db.coll", "db.*").
+    // Empty backs up every collection.
+    Collections string `json:"collections,omitempty"`
+    // IncludeRBAC also backs up users, roles and grants.
     IncludeRBAC bool `json:"includeRBAC,omitempty"`
 }
 
 type MilvusRestoreParameters struct {
-    // Collections limits the restore (names after renaming). Empty = all.
-    Collections []string `json:"collections,omitempty"`
+    Collections string `json:"collections,omitempty"`
     // CollectionSuffix restores next to existing collections instead of over
-    // them (e.g. "_restored").
+    // them (e.g. "_restored"). [A-Za-z0-9_] only.
     CollectionSuffix string `json:"collectionSuffix,omitempty"`
-    // DropExistingCollections drops a same-named target collection first.
-    // Default true for Restore into an existing Instance (section 8.4).
-    DropExistingCollections *bool `json:"dropExistingCollections,omitempty"`
-    // RebuildIndexes recreates indexes from backed-up metadata so restored
-    // collections are loadable. Default true.
-    RebuildIndexes *bool `json:"rebuildIndexes,omitempty"`
+    // KeepExistingCollections fails the restore of a collection that already
+    // exists instead of dropping and replacing it.
+    KeepExistingCollections bool `json:"keepExistingCollections,omitempty"`
     // IncludeRBAC restores users, roles and grants if the backup has them.
     IncludeRBAC bool `json:"includeRBAC,omitempty"`
 }
 ```
 
+Indexes are always rebuilt (`--rebuild_index`): without them restored
+collections cannot be loaded, so it is not a choice. Collections are a
+comma-separated string because the UI has no list widget for BackupClass
+forms.
+
 Excluded on purpose: `--strategy`, `--format`, concurrency knobs, and
 `--use_v2_restore`. They are tuning, not user intent. If needed they become
 provider Helm values.
-
-`ui.yaml`: collections as a tag list, plus RBAC and drop/rebuild toggles. The
-restore drawer shows the "existing collections are dropped" warning.
 
 ## 7. Job anatomy
 
@@ -240,17 +244,16 @@ Common Job settings:
 |---|---|
 | `milvus.grpc.address` / `port` | `<instance>-milvus.<ns>.svc` / `19530` (ClusterIP service, all exposure types) |
 | `milvus.management.endpoint` | `http://<instance>-milvus.<ns>.svc:9091` |
-| `milvus.user` / `MILVUS_PASSWORD` | `root` / env from Secret `<instance>-credentials` key `password` |
-| `milvus.storage.provider` | bundled → `minio`; external: `spec.dep.storage.type` / `minio.cloudProvider` → `minio`, `aws`, `gcp`, `azure` |
-| `address` / `port` | `spec.dep.storage.endpoint` (webhook-defaulted to `<instance>-minio.<ns>:9000`) |
-| `bucketName` | `spec.config.minio.bucketName`, default `milvus-bucket` (operator `defaultBucketName`) |
-| `rootPath` | `spec.config.minio.rootPath`, default `files` (Milvus default) |
-| `useSSL` / `region` | `spec.config.minio.useSSL` / `.region` |
-| `auth` | `useIAM` → `type: iam`; else `static`, with env from Secret `spec.dep.storage.secretRef`, keys `accesskey`/`secretkey` or `rootUser`/`rootPassword` (the same fallback as the operator's `storageSecretKeys`; we pick whichever pair exists) |
+| `milvus.user` / `MILVUS_PASSWORD` | `root` / env from Secret `<instance>-credentials` key `appliedPassword` (the password Milvus accepts while a rotation is pending) |
+| `milvus.storage.*` | read from the operator-rendered ConfigMap `<instance>` (`user.yaml`, `minio` section). Keys the operator leaves out take Milvus defaults (`port` 9000, `rootPath` `files`). |
+| `provider` | `minio.cloudProvider`, else `minio` |
+| `auth` | `minio.useIAM` → `type: iam`; else `static`, with env from Secret `spec.dep.storage.secretRef`, keys `accesskey`/`secretkey` |
 
-Reading the Milvus CR, not the Instance params, keeps backups correct for
-instances whose storage settings came from operator defaulting or from before
-the provider pinned them.
+The operator renders `minio.bucketName` as the instance name for bundled
+storage (its config template), while its own helpers default to
+`milvus-bucket`. Reading the rendered config instead of the CR keeps
+backups correct whatever the operator decided, without re-implementing its
+defaults.
 
 ### 7.3 Backup side (`backup.*`), from the BackupStorage
 
@@ -346,23 +349,24 @@ provider manager options.
 
 ### 8.3 Delete (`CleanupBackup`)
 
-- `deletionPolicy: Retain`, or the Backup never reached `Succeeded` →
-  done immediately. A failed `create` may leave partial objects under
+- `deletionPolicy: Retain`, or the create Job did not complete → done
+  immediately. The runtime moves the Backup to `Deleting` before calling
+  `CleanupBackup`, so the create Job's outcome, not `status.state`, tells
+  whether data exists. A failed `create` may leave partial objects under
   `<rootPath>/<mbName>/`. Tracked as an open question.
 - Otherwise ensure the Job `<backup>-md` (`delete -n`). This needs only the
-  backup side of the config. `Complete` → done. `Failed` with "read backup
-  info" (already gone) → done. Any other failure → retry with backoff and
-  surface the message. A 3-attempt cap is followed by a done-with-warning
-  Event, so a deleted bucket cannot block namespace deletion forever.
+  backup side of the config. `Complete` → done. `Failed` → done as well,
+  logging the message, so an unreachable or deleted bucket cannot block
+  namespace deletion forever; the data it could not remove stays in storage.
 
 ### 8.4 Restore into an existing Instance (`SyncRestore`)
 
 1. Resolve the source: `dataSource.type: Backup` → Backup CR (must be
    `Succeeded`). Its rootPath is derived per section 7.4, or from
    `external.path`. `PointInTime` → `Failed` (unsupported).
-2. Target Milvus must be `Healthy` and at a version ≥ 2.6.12. When the source
-   Instance still exists, its version must be ≤ the target's. Otherwise →
-   `Failed` with an explanation.
+2. Target Milvus must be `Healthy` and every component at 2.6.12 or newer.
+   Otherwise → `Failed` with an explanation. A source newer than the target is
+   left to milvus-backup to reject.
 3. Serialize with other Jobs for the instance (section 8.1 step 2).
 4. Job `restore -n <mbName> --rebuild_index --drop_exist_collection …`. The
    backup side comes from the **source Backup's** storage, and the Milvus side
@@ -430,15 +434,14 @@ needed (section 8.2).
 
 ```
 definition/backupclasses/milvus-backup/{class.yaml,types.go,ui.yaml}
-internal/backup/config.go      # render backup.yaml + env from Milvus CR & BackupStorage (pure, unit-tested)
-internal/backup/job.go         # Job/CronJob/ConfigMap builders, status mapping
-internal/provider/backup.go    # SyncBackup/SyncRestore/Cleanup*, watchers, Mirror
-internal/provider/backup_schedule.go  # CronJob reconcile + retention, called from Sync
+internal/provider/backup_config.go  # milvus-backup config from the rendered Milvus config + BackupStorage
+internal/provider/backup_job.go     # Job/ConfigMap builder, naming, serialization, status mapping
+internal/provider/backup.go         # SyncBackup/SyncRestore/Cleanup*, watchers, seeding
 ```
 
-`Sync` gains `syncBackupSchedules(c)` and `c.ReconcileDataSource()`. `Status`
-gains the Restoring override. `var _ controller.BackupProvider = (*Provider)(nil)`
-and the matching assertions for the other interfaces.
+`Sync` calls `syncDataSource(c)` (which calls `c.ReconcileDataSource()` once
+Milvus is healthy). `Status` reports `Restoring` while seeding or a Restore
+runs. Schedules (`backup_schedule.go`, CronJobs + Mirror) are phase 2.
 
 ## 12. Testing
 
@@ -463,15 +466,37 @@ and the matching assertions for the other interfaces.
 
 ## 13. Phasing
 
-| Phase | Scope | Closes |
+| Phase | Scope | State |
 |---|---|---|
-| 0. Spike | Run milvus-backup v0.6.0 by hand as a Job against a provider-managed 2.6.15 instance (bundled MinIO, root auth, Woodpecker). Confirm the config mapping, non-root execution, pauseGC through `<instance>-milvus:9091`, REST on 19530, and restore + `--rebuild_index` | — |
-| 1. On-demand | BackupClass, `SyncBackup`, `CleanupBackup`, `SyncRestore` (same instance), validation, RBAC, unit and chainsaw tests | #9 (BackupClass, storage), #10 (restore) |
-| 2. Schedules and seeding | CronJobs + Mirror + retention; `spec.dataSource` + Restoring phase; cross-instance restore; live e2e | #9 schedules, #10 seeding/orchestration |
-| 3. Polish | `BackupImporter`, `status.size`, custom CA for BackupStorage, UI | — |
+| 0. Spike | Run milvus-backup v0.6.0 by hand as a Job against a provider-managed 2.6.15 instance | Done (section 13.1) |
+| 1. On-demand + seeding | BackupClass, `SyncBackup`, `CleanupBackup`, `SyncRestore` (same and other instance), `spec.dataSource` + Restoring phase, RBAC, unit tests | Done, tested live (section 13.1) |
+| 2. Schedules | CronJobs + Mirror + retention; chainsaw suite; e2e in `make test-e2e-live` | Next |
+| 3. Polish | `BackupImporter`, `status.size`, custom CA for BackupStorage, UI review | Later |
 
 Prerequisite outside this work: bump the catalog default to ≥ 2.6.12 before
-GA (section 4).
+GA (section 4). Restores into the current default (2.6.11) are refused.
+
+### 13.1 Live results (LKE, OpenEverest 2.0.0-dev.4, milvus-operator 1.3.9, milvus-backup 0.6.0)
+
+- The Job runs as uid 65532 with a read-only root filesystem and no service
+  account token.
+- Backup of a standalone and of a cluster instance (Woodpecker, bundled
+  MinIO): `Succeeded` in seconds; the cluster backup paused and resumed GC per
+  collection through the proxy.
+- Restore of a standalone backup into a cluster instance, over an existing
+  collection: data and search results identical, collection loadable
+  (indexes rebuilt). The Instance reported `Restoring` until the Restore
+  finished.
+- Seeding a new standalone instance from a cluster backup through
+  `spec.dataSource`: `Restoring` → `Ready`, `DataSourceReady=True`, data
+  verified. Also from a Backup whose Instance was deleted with
+  `deletionPolicy: Orphan`.
+- Deleting a Backup removes `<rootPath>/<name>/` from the bucket; deleting
+  an Instance with the default `Cascade` policy removes its Backups and their
+  data.
+- Wrong BackupStorage credentials: `Failed` with milvus-backup's error line.
+- Restore into a 2.6.11 instance: `Failed` with "restoring needs Milvus 2.6.12
+  or newer".
 
 ## 14. Risks and open questions
 
@@ -489,9 +514,16 @@ GA (section 4).
    delete through the provider's S3 client (phase 3).
 4. **Mirror watch cost.** `batchv1.Job` informed cluster-wide. Measure, or use
    a label-selected cache.
-5. **Bundled MinIO credentials.** The open `feat/secret-backed-credentials`
-   work changes `<instance>-minio` to `rootUser`/`rootPassword` keys. The
-   resolver handles both schemas, so there is no ordering dependency.
+5. **Orphaned Backups cannot be deleted (runtime).** When the origin Instance
+   is gone (`deletionPolicy: Orphan`), the runtime never calls
+   `CleanupBackup`, so deleting such a Backup hangs on its finalizer and its
+   data stays in storage. Still true on openeverest `main`, which now marks
+   these Backups Pending/Failed but skips cleanup. Needs a core change: call
+   `CleanupBackup` with a namespace-only context, as it already does for
+   Restores.
 6. **Restore load.** BulkInsert of large backups competes with live traffic,
    and the 2.6 import limits (`dataCoord.import.maxImportJobNum`) are tuned in
    Milvus config, not here. Expose throttling later if needed.
+7. **Schedules are silently ignored until phase 2.** The runtime never runs
+   schedules for ProviderManaged classes, so `spec.backup.storages[].schedules`
+   does nothing yet.
