@@ -141,7 +141,8 @@ spec:
 
 Component names are defined by this provider — see [definition/provider.yaml](definition/provider.yaml).
 `spec.version` and `spec.topology` are optional; the provider defaults apply. More
-examples (including a full cluster topology) live in [examples/](examples/).
+examples (a full cluster topology, multi-AZ placement and Prometheus monitoring)
+live in [examples/](examples/).
 
 Watch it come up:
 

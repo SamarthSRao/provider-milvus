@@ -1,0 +1,44 @@
+# Example standalone Milvus Instance with Prometheus monitoring and debug logs.
+# Enabling Prometheus creates a PodMonitor (<instance>-metrics) that scrapes
+# every Milvus component on its metrics port; set podMonitorLabels to match
+# your Prometheus podMonitorSelector. The bundled etcd, MinIO and Pulsar are
+# not scraped. The same monitoring block works for the cluster topology.
+#
+# Prerequisites:
+#   1. OpenEverest CRDs installed
+#   2. Provider CR applied (provider.yaml)
+#   3. Operator running
+#   4. Provider controller running
+#   5. Prometheus Operator installed (PodMonitor CRD)
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: milvus-monitoring
+spec:
+  providerRef:
+    name: milvus
+  version: "2.6.15"
+  topology:
+    type: standalone
+    parameters:
+      monitoring:
+        prometheus:
+          enabled: true
+          # Optional: defaults to the Prometheus global scrape interval.
+          interval: 30s
+          podMonitorLabels:
+            release: kube-prometheus-stack
+  components:
+    standalone:
+      type: milvus
+      replicas: 1
+      resources:
+        limits:
+          cpu: "1"
+          memory: 4Gi
+      # Logging: Milvus log settings go through the engine configuration.
+      # Levels: debug, info, warn, error.
+      parameters:
+        configuration: |
+          log:
+            level: debug

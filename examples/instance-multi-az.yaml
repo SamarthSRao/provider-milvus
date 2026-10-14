@@ -1,0 +1,58 @@
+# Example multi-AZ cluster Milvus Instance for the provider-milvus provider.
+# Spreads the query nodes, data nodes and proxies evenly across availability
+# zones, and runs two MixCoord replicas: one active, one hot standby. The
+# provider enables active-standby on the coordinators automatically when
+# mixCoord has more than one replica.
+#
+# A topology spread constraint without a labelSelector counts this
+# component's own pods. whenUnsatisfiable: DoNotSchedule keeps pods Pending
+# rather than piling them into one zone; use ScheduleAnyway for a soft spread.
+#
+# Prerequisites:
+#   1. OpenEverest CRDs installed
+#   2. Provider CR applied (provider.yaml)
+#   3. Operator running
+#   4. Provider controller running
+#   5. Nodes labelled with topology.kubernetes.io/zone (at least 2 zones)
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: milvus-multi-az
+spec:
+  providerRef:
+    name: milvus
+  version: "2.6.15"
+  topology:
+    type: cluster
+  components:
+    proxy:
+      type: milvus
+      replicas: 2
+      schedulingPolicy:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
+    mixCoord:
+      type: milvus
+      # Active-standby: the second replica takes over if the active one fails.
+      replicas: 2
+    dataNode:
+      type: milvus
+      replicas: 2
+      schedulingPolicy:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
+    queryNode:
+      type: milvus
+      replicas: 2
+      schedulingPolicy:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
+    streamingNode:
+      type: milvus
+      replicas: 1
