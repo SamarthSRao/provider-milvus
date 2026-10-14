@@ -33,11 +33,14 @@ const (
 	rootPasswordEnv = "COMMON_SECURITY_DEFAULTROOTPASSWORD"
 
 	// storageSecretSuffix matches the Secret the operator points Milvus at for
-	// bundled object storage; the operator and the bundled MinIO chart both
-	// read these keys.
+	// bundled object storage. The MinIO chart of instances created before
+	// operator 1.3.10 reads accesskey/secretkey, the Silo chart that replaced it
+	// reads rootUser/rootPassword; the operator and backup Jobs read the former.
 	storageSecretSuffix      = "-minio"
 	storageSecretKeyUser     = "accesskey"
 	storageSecretKeyPassword = "secretkey"
+	siloSecretKeyUser        = "rootUser"
+	siloSecretKeyPassword    = "rootPassword"
 	storageUserLength        = 20
 	storagePasswordLength    = 40
 )
@@ -137,32 +140,40 @@ func applyCredentialsSecret(c *controller.Context, creds rootCredentials) error 
 	return nil
 }
 
-// ensureGeneratedSecret returns the data of the named Secret, persisting
-// generated on first use so the values stay stable across reconciles.
-func ensureGeneratedSecret(c *controller.Context, name string, generated map[string][]byte) (map[string][]byte, error) {
+// ensureStorageSecret keeps the generated object-storage credentials stable
+// across reconciles and publishes them under every key name a consumer reads.
+func ensureStorageSecret(c *controller.Context, name string) error {
 	existing := &corev1.Secret{}
-	if err := c.Get(existing, name); err == nil && hasAllKeys(existing.Data, generated) {
-		return existing.Data, nil
+	if err := c.Get(existing, name); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("get secret %s: %w", name, err)
+	}
+	user, password := existing.Data[storageSecretKeyUser], existing.Data[storageSecretKeyPassword]
+	if len(user) == 0 || len(password) == 0 {
+		generatedUser, err := generatePassword(storageUserLength)
+		if err != nil {
+			return err
+		}
+		generatedPassword, err := generatePassword(storagePasswordLength)
+		if err != nil {
+			return err
+		}
+		user, password = []byte(generatedUser), []byte(generatedPassword)
 	}
 
 	secret := &corev1.Secret{
 		ObjectMeta: c.ObjectMeta(name),
 		Type:       corev1.SecretTypeOpaque,
-		Data:       generated,
+		Data: map[string][]byte{
+			storageSecretKeyUser:     user,
+			storageSecretKeyPassword: password,
+			siloSecretKeyUser:        user,
+			siloSecretKeyPassword:    password,
+		},
 	}
 	if err := c.Apply(secret); err != nil {
-		return nil, fmt.Errorf("apply secret %s: %w", name, err)
+		return fmt.Errorf("apply secret %s: %w", name, err)
 	}
-	return generated, nil
-}
-
-func hasAllKeys(data, want map[string][]byte) bool {
-	for key := range want {
-		if len(data[key]) == 0 {
-			return false
-		}
-	}
-	return true
+	return nil
 }
 
 // applyAuthConfig enables authentication and seeds the initial root password
@@ -201,18 +212,7 @@ func applyStorageCredentials(c *controller.Context, spec *milvusapi.MilvusSpec) 
 	}
 
 	name := storageSecretName(c.Name())
-	user, err := generatePassword(storageUserLength)
-	if err != nil {
-		return err
-	}
-	password, err := generatePassword(storagePasswordLength)
-	if err != nil {
-		return err
-	}
-	if _, err := ensureGeneratedSecret(c, name, map[string][]byte{
-		storageSecretKeyUser:     []byte(user),
-		storageSecretKeyPassword: []byte(password),
-	}); err != nil {
+	if err := ensureStorageSecret(c, name); err != nil {
 		return err
 	}
 	spec.Dep.Storage.InCluster.Values["existingSecret"] = name

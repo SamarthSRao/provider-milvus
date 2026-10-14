@@ -3,8 +3,12 @@
 spec:
   componentTypes:
     milvus:
-      defaultVersion: 2.6.15
+      defaultVersion: 2.6.25
       versions:
+        - image: milvusdb/milvus:v2.6.25
+          version: 2.6.25
+        - image: milvusdb/milvus:v2.6.25-gpu
+          version: 2.6.25-gpu
         - image: milvusdb/milvus:v2.6.15
           version: 2.6.15
         - image: milvusdb/milvus:v2.6.15-gpu
@@ -2434,7 +2438,7 @@ spec:
               type: object
           type: object
       type: milvus
-  defaultVersion: 2.6.15
+  defaultVersion: 2.6.25
   release:
     version: 0.1.0
   topologies:
@@ -3658,6 +3662,22 @@ spec:
         - monitoring
         - advanced
   versions:
+    - components:
+        dataNode: 2.6.25
+        mixCoord: 2.6.25
+        proxy: 2.6.25
+        queryNode: 2.6.25
+        standalone: 2.6.25
+        streamingNode: 2.6.25
+      name: 2.6.25
+    - components:
+        dataNode: 2.6.25-gpu
+        mixCoord: 2.6.25-gpu
+        proxy: 2.6.25-gpu
+        queryNode: 2.6.25-gpu
+        standalone: 2.6.25-gpu
+        streamingNode: 2.6.25-gpu
+      name: 2.6.25-gpu
     - components:
         dataNode: 2.6.15
         mixCoord: 2.6.15

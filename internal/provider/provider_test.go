@@ -486,7 +486,7 @@ func TestBuildMilvusSpecTopology(t *testing.T) {
 		})
 		spec, err := BuildMilvusSpec(c)
 		require.NoError(t, err)
-		assert.Equal(t, "2.6.15", spec.Com.Version)
+		assert.Equal(t, "2.6.25", spec.Com.Version)
 	})
 
 	t.Run("unset version resolves the default bundle and image from the Provider", func(t *testing.T) {

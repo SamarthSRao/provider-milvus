@@ -132,6 +132,30 @@ func TestApplyStorageCredentials(t *testing.T) {
 		// The operator's storage check and the MinIO chart's env both read these keys.
 		assert.Len(t, secret.Data["accesskey"], storageUserLength)
 		assert.Len(t, secret.Data["secretkey"], storagePasswordLength)
+		// The Silo chart reads these.
+		assert.Equal(t, secret.Data["accesskey"], secret.Data["rootUser"])
+		assert.Equal(t, secret.Data["secretkey"], secret.Data["rootPassword"])
+	})
+
+	t.Run("secret generated before Silo keeps its credentials", func(t *testing.T) {
+		name := storageSecretName("test-milvus")
+		old := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "db"},
+			Data:       map[string][]byte{"accesskey": []byte("user"), "secretkey": []byte("password")},
+		}
+		c := newTestContextWithObjects(t, standalone, old)
+		spec := bundledStorageSpec(t, c)
+
+		require.NoError(t, applyStorageCredentials(c, &spec))
+
+		secret := &corev1.Secret{}
+		require.NoError(t, c.Get(secret, name))
+		assert.Equal(t, map[string][]byte{
+			"accesskey":    []byte("user"),
+			"secretkey":    []byte("password"),
+			"rootUser":     []byte("user"),
+			"rootPassword": []byte("password"),
+		}, secret.Data)
 	})
 
 	t.Run("credentials stay stable across reconciles", func(t *testing.T) {
