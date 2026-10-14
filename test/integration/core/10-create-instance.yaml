@@ -8,6 +8,11 @@ spec:
     name: milvus
   topology:
     type: standalone
+    parameters:
+      dependencies:
+        storage:
+          persistence:
+            size: 10Gi
   components:
     standalone:
       type: milvus
@@ -19,5 +24,3 @@ spec:
         requests:
           cpu: 500m
           memory: 512M
-      storage:
-        size: 10Gi

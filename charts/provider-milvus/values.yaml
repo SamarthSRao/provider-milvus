@@ -134,7 +134,7 @@ presets: []
   #   enabled: true
   #   spec:
   #     provider: milvus
-  #     version: 1.0.0
+  #     version: 2.6.15
   #     topology:
   #       type: standalone
   #     components:
@@ -145,8 +145,6 @@ presets: []
   #           limits:
   #             cpu: "1"
   #             memory: 2Gi
-  #         storage:
-  #           size: 10Gi
 
 # -- Additional environment variables to set on the provider container
 extraEnv: []

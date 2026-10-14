@@ -190,6 +190,10 @@ func validateComponentsForTopology(components map[string]corev1alpha1.ComponentS
 		if component.Replicas != nil && *component.Replicas < 1 {
 			return fmt.Errorf("component %q replicas must be >= 1", name)
 		}
+		// Milvus components are stateless; their data lives in the object storage.
+		if component.Storage != nil {
+			return fmt.Errorf("component %q does not take storage; size the object storage with spec.topology.parameters.dependencies.storage.persistence.size", name)
+		}
 		if err := validateComponentResources(name, component); err != nil {
 			return err
 		}
