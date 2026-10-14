@@ -1,0 +1,78 @@
+---
+# Scaling suite for the Milvus provider.
+#
+# The Milvus operator is scaled to 0 in CI, so these steps check the Milvus CR
+# the provider renders for replica changes and autoscaling, not the pods.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: scaling
+spec:
+  description: |
+    Cluster Instance: create with bundled dependencies, scale components out,
+    turn query node autoscaling on and off, and delete.
+
+  catch:
+    - script:
+        content: kubectl -n $NAMESPACE get instance,milvuses.milvus.io -o yaml
+    - podLogs:
+        namespace: provider-system
+        selector: app.kubernetes.io/name=provider-milvus
+        tail: 100
+
+  steps:
+    - name: provider-deployed
+      try:
+        - assert:
+            file: ../core/00-assert.yaml
+
+    - name: create-cluster
+      try:
+        - apply:
+            file: 10-create-cluster.yaml
+        - assert:
+            file: 10-assert.yaml
+
+    - name: scale-out
+      try:
+        - apply:
+            file: 20-scale-out.yaml
+        - assert:
+            file: 20-assert.yaml
+
+    - name: autoscaling-on
+      try:
+        - apply:
+            file: 30-autoscaling-on.yaml
+        - assert:
+            file: 30-assert.yaml
+
+    # The UI drops the whole autoscaling block when it is switched off.
+    - name: autoscaling-off
+      try:
+        - script:
+            content: |
+              kubectl -n $NAMESPACE patch instance/scaling-cluster --type json \
+                -p '[{"op":"remove","path":"/spec/components/queryNode/parameters/autoscaling"}]'
+        - assert:
+            file: 40-assert.yaml
+
+    - name: delete-instance
+      try:
+        - script:
+            content: |
+              kubectl -n $NAMESPACE delete instance/scaling-cluster --wait=false
+              kubectl -n $NAMESPACE patch milvuses.milvus.io/scaling-cluster \
+                -p '{"metadata":{"finalizers":null}}' --type merge || true
+        - wait:
+            apiVersion: core.openeverest.io/v1alpha1
+            kind: Instance
+            name: scaling-cluster
+            for:
+              deletion: {}
+        - wait:
+            apiVersion: milvus.io/v1beta1
+            kind: Milvus
+            name: scaling-cluster
+            for:
+              deletion: {}

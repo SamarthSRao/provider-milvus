@@ -12,7 +12,10 @@ import (
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1alpha1 "github.com/openeverest/openeverest/v2/api/core/v1alpha1"
@@ -67,6 +70,52 @@ func applyAutoscaling(component *milvusapi.Component, autoscaling *components.Au
 		MaxReplicas: autoscaling.MaxReplicas,
 		Metrics:     metrics,
 	}
+}
+
+// clearDroppedAutoscaling removes the HPA spec of components whose autoscaling
+// was turned off. The operator writes hpa.behavior back whenever it updates
+// the CR, so server-side apply alone would leave a partial hpa that the CRD
+// rejects for its missing maxReplicas.
+func clearDroppedAutoscaling(c *controller.Context, desired milvusapi.MilvusSpec) error {
+	existing := &milvusapi.Milvus{}
+	if err := c.Get(existing, c.Name()); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get Milvus CR: %w", err)
+	}
+	deployed, wanted := autoscaledComponents(existing.Spec), autoscaledComponents(desired)
+	var ops []map[string]string
+	for _, name := range autoscalableComponents {
+		if deployed[name] && !wanted[name] {
+			ops = append(ops, map[string]string{"op": "remove", "path": "/spec/components/" + name + "/hpa"})
+		}
+	}
+	if len(ops) == 0 {
+		return nil
+	}
+	patch, err := json.Marshal(ops)
+	if err != nil {
+		return err
+	}
+	if err := c.Client().Patch(c.Context(), existing, client.RawPatch(types.JSONPatchType, patch)); err != nil {
+		return fmt.Errorf("remove autoscaling from Milvus CR: %w", err)
+	}
+	return nil
+}
+
+func autoscaledComponents(spec milvusapi.MilvusSpec) map[string]bool {
+	autoscaled := map[string]bool{}
+	if spec.Com.Proxy != nil {
+		autoscaled[common.ComponentProxy] = spec.Com.Proxy.HPA != nil
+	}
+	if spec.Com.DataNode != nil {
+		autoscaled[common.ComponentDataNode] = spec.Com.DataNode.HPA != nil
+	}
+	if spec.Com.QueryNode != nil {
+		autoscaled[common.ComponentQueryNode] = spec.Com.QueryNode.HPA != nil
+	}
+	return autoscaled
 }
 
 func validateAutoscaling(name string, component corev1alpha1.ComponentSpec, params components.MilvusParameters) error {

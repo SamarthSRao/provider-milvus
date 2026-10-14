@@ -362,6 +362,9 @@ func (p *Provider) Sync(c *controller.Context) error {
 	if err := applyStorageCredentials(c, &spec); err != nil {
 		return err
 	}
+	if err := clearDroppedAutoscaling(c, spec); err != nil {
+		return err
+	}
 
 	cr := &milvusapi.Milvus{
 		ObjectMeta: c.ObjectMeta(c.Name()),

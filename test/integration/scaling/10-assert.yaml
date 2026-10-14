@@ -1,0 +1,38 @@
+# The cluster CR carries every component and the requested dependency sizing.
+apiVersion: milvus.io/v1beta1
+kind: Milvus
+metadata:
+  name: scaling-cluster
+spec:
+  mode: cluster
+  components:
+    proxy:
+      replicas: 1
+    mixCoord:
+      replicas: 1
+    dataNode:
+      replicas: 1
+    queryNode:
+      replicas: 1
+      (hpa == null): true
+    streamingNode:
+      replicas: 1
+  dependencies:
+    msgStreamType: woodpecker
+    etcd:
+      inCluster:
+        deletionPolicy: Delete
+        pvcDeletion: true
+        values:
+          replicaCount: 1
+          persistence:
+            size: 2Gi
+    storage:
+      inCluster:
+        deletionPolicy: Delete
+        pvcDeletion: true
+        values:
+          mode: standalone
+          replicas: 1
+          persistence:
+            size: 5Gi

@@ -147,6 +147,10 @@ test-integration: ## Run all integration tests against the current cluster.
 test-integration-core: ## Run core integration tests.
 	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration/core
 
+.PHONY: test-integration-scaling
+test-integration-scaling: ## Run scaling integration tests.
+	. ./test/vars.sh && chainsaw test --config ./test/integration/.chainsaw.yaml ./test/integration/scaling
+
 # Live e2e needs a real cluster with OpenEverest, this provider and the Milvus
 # operator running (integration tests scale the operator to 0).
 .PHONY: test-e2e-live

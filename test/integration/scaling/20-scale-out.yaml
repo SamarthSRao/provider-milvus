@@ -1,0 +1,21 @@
+# Scale the stateless components out.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: scaling-cluster
+spec:
+  providerRef:
+    name: milvus
+  components:
+    proxy:
+      type: milvus
+      replicas: 2
+    dataNode:
+      type: milvus
+      replicas: 2
+    queryNode:
+      type: milvus
+      replicas: 3
+    streamingNode:
+      type: milvus
+      replicas: 2

@@ -175,6 +175,29 @@ func TestValidateStandaloneSingleReplica(t *testing.T) {
 	assert.Contains(t, err.Error(), "standalone runs a single replica")
 }
 
+func TestClearDroppedAutoscaling(t *testing.T) {
+	hpa := &milvusapi.HPASpec{MinReplicas: ptr.To(int32(1)), MaxReplicas: 3}
+	existing := &milvusapi.Milvus{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-milvus", Namespace: "db"},
+		Spec: milvusapi.MilvusSpec{Com: milvusapi.MilvusComponents{
+			Proxy:     &milvusapi.MilvusProxy{ServiceComponent: milvusapi.ServiceComponent{Component: milvusapi.Component{HPA: hpa}}},
+			QueryNode: &milvusapi.MilvusQueryNode{Component: milvusapi.Component{HPA: hpa}},
+		}},
+	}
+	c := newTestContextWithObjects(t, corev1alpha1.InstanceSpec{Topology: &corev1alpha1.TopologySpec{Type: "cluster"}}, existing)
+	desired := milvusapi.MilvusSpec{Com: milvusapi.MilvusComponents{
+		Proxy:     &milvusapi.MilvusProxy{ServiceComponent: milvusapi.ServiceComponent{Component: milvusapi.Component{HPA: hpa}}},
+		QueryNode: &milvusapi.MilvusQueryNode{},
+	}}
+
+	require.NoError(t, clearDroppedAutoscaling(c, desired))
+
+	cr := &milvusapi.Milvus{}
+	require.NoError(t, c.Get(cr, "test-milvus"))
+	assert.Nil(t, cr.Spec.Com.QueryNode.HPA)
+	assert.Equal(t, hpa, cr.Spec.Com.Proxy.HPA, "autoscaling that stays on is left to the apply")
+}
+
 type fakeLoadedReplicas struct {
 	replicas map[string]int32
 	err      error
