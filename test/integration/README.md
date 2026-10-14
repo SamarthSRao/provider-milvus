@@ -5,10 +5,9 @@ using [chainsaw](https://kyverno.github.io/chainsaw/). They apply OpenEverest
 `Instance` CRs, assert on the operator-native resources the provider produces,
 and verify status propagation back to the `Instance`.
 
-This directory is a **skeleton**: the `core/` suite ships with a single step
-that verifies the provider deployment is running, plus commented-out sample
-steps showing how to test the full Instance lifecycle. Flesh it out as you
-implement your provider. For a complete, real-world example see the
+The `core/` suite runs a standalone `Instance` through its lifecycle: create,
+authentication, readiness, NodePort and LoadBalancer exposure, a pod scheduling
+policy update, and delete. For more suites to model new ones on, see the
 [provider-percona-server-mongodb test suites](https://github.com/openeverest/provider-percona-server-mongodb/tree/main/test/integration).
 
 ## Layout

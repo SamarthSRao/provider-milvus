@@ -59,10 +59,19 @@ func TestValidateInstance(t *testing.T) {
 					common.ComponentStandalone: {
 						Replicas:  ptr.To(int32(1)),
 						Resources: resources(t, map[corev1.ResourceName]string{"cpu": "1", "memory": "2Gi"}, nil),
-						Storage:   storage(t, "20Gi"),
 					},
 				},
 			},
+		},
+		{
+			name: "component storage",
+			spec: corev1alpha1.InstanceSpec{
+				Topology: &corev1alpha1.TopologySpec{Type: "standalone"},
+				Components: map[string]corev1alpha1.ComponentSpec{
+					common.ComponentStandalone: {Storage: storage(t, "20Gi")},
+				},
+			},
+			wantErr: `component "standalone" does not take storage`,
 		},
 		{
 			name: "unsupported topology",
@@ -146,10 +155,7 @@ func TestValidateInstance(t *testing.T) {
 				Components: map[string]corev1alpha1.ComponentSpec{
 					common.ComponentProxy:    {Replicas: ptr.To(int32(1))},
 					common.ComponentMixCoord: {Replicas: ptr.To(int32(1))},
-					common.ComponentDataNode: {
-						Replicas: ptr.To(int32(2)),
-						Storage:  storage(t, "20Gi"),
-					},
+					common.ComponentDataNode: {Replicas: ptr.To(int32(2))},
 				},
 			},
 		},

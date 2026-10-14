@@ -1,7 +1,4 @@
-# provider-milvus
-
-<!-- TODO(provider): replace the heading with the product name (e.g. "Percona Server for MongoDB
-Provider", "KubeAI Provider"). -->
+# Milvus Provider
 
 > [!WARNING]
 > **Pre-alpha.** OpenEverest v2 and this provider are under active development. CRD schemas,
@@ -24,7 +21,7 @@ backed by the [Milvus Operator](https://github.com/zilliztech/milvus-operator).
 OpenEverest providers translate a single, technology-agnostic `Instance` custom resource into
 the native custom resources of an upstream Kubernetes operator — for databases, but equally
 for caches, message queues, object storage, or model-serving runtimes. This repository is the
-provider for `<technology>`: it owns the technology-specific knowledge — topologies, versions,
+provider for Milvus: it owns the technology-specific knowledge — topologies, versions,
 parameters, backup wiring — so that users, the API server, and the UI stay technology-agnostic.
 
 > [!IMPORTANT]
@@ -57,10 +54,6 @@ manages pods directly — all lifecycle work is delegated to the operator.
 
 ## Capabilities
 
-<!-- TODO(provider): the rows below are the standard set across all OpenEverest providers.
-     Keep the wording of the rows you use identical so providers stay comparable, and delete
-     the rows that make no sense for this technology rather than marking them unsupported. -->
-
 What you can do to a running instance through the `Instance` API. Upgrading the
 provider itself is covered under [Installation](#installation).
 
@@ -82,7 +75,7 @@ Stateful workloads additionally report:
 
 | Capability | Status | Notes |
 |---|---|---|
-| Persistent storage | ✅ | Object storage (MinIO) sized via the component `storage` |
+| Persistent storage | ✅ | Bundled object storage (MinIO) sized via `topology.parameters.dependencies.storage.persistence.size`; Milvus components are stateless and take no `storage` |
 | Storage expansion | ❌ | |
 | Backups (on demand) | ✅ | `milvus-backup` BackupClass; runs the upstream [milvus-backup](https://github.com/zilliztech/milvus-backup) tool into an S3-compatible BackupStorage |
 | Backups (scheduled) | ✅ | Cron schedules in `spec.backup`, run as CronJobs, with count- or time-based retention |
@@ -90,8 +83,6 @@ Stateful workloads additionally report:
 | Restore | ✅ | Into an existing instance or a new one (`spec.dataSource`); needs Milvus 2.6.12 or newer |
 
 ## Installation
-
-<!-- TODO(provider): confirm the published chart coordinates (org/repo) match where you publish. -->
 
 The provider chart is published as an OCI artifact:
 
@@ -141,8 +132,6 @@ spec:
         limits:
           cpu: "1"
           memory: 4Gi
-      storage:
-        size: 10Gi
 ```
 
 Component names are defined by this provider — see [definition/provider.yaml](definition/provider.yaml).
@@ -209,8 +198,6 @@ spec:
       type: milvus
       service:
         serviceType: LoadBalancer   # or NodePort
-      storage:
-        size: 10Gi
 ```
 
 - **ClusterIP** (default) — reachable only inside the cluster.
@@ -451,7 +438,9 @@ Versions only move forward. Milvus migrates its metadata when it upgrades, so
 a version older than the one deployed — for the bundle or for a single pinned
 component — is rejected, and so is reverting an upgrade that has already started.
 
-<!-- TODO(provider): document the supported upgrade paths (minor only? operator first?). -->
+Any newer bundle can be applied directly; all bundles are Milvus 2.6 patch
+releases. The Milvus operator ships inside the provider chart, so upgrading the
+chart upgrades the operator as well.
 
 ## Configuration
 
@@ -461,7 +450,17 @@ component — is rejected, and so is reverting an upgrade that has already start
   (`kubectl get provider milvus -o yaml`). The API server and the UI validate
   user input against these schemas.
 
-<!-- TODO(provider): call out the technology-specific knobs worth knowing about. -->
+Worth knowing:
+
+- **Object storage size** — `topology.parameters.dependencies.storage.persistence.size`
+  sizes the bundled MinIO and can only grow. It is the only storage knob: the
+  Milvus components keep their data in the object storage.
+- **Message stream** — cluster instances keep their write-ahead log in the object
+  storage (Woodpecker) unless `dependencies.messageStreamType` is `pulsar`. It is
+  fixed at creation, like the topology and the etcd and storage `rootPath`.
+- **Engine configuration** — `parameters.configuration` on a component takes Milvus
+  YAML (e.g. `log.level`), merged into the Milvus configuration.
+- **Coordinator HA** — more than one `mixCoord` replica runs active-standby.
 
 ## Development
 
@@ -504,10 +503,11 @@ code generation, and the backup/restore interfaces are documented once for all p
 ### Testing
 
 - **Unit tests** — `make test-unit`.
-- **Integration tests** — chainsaw suites under `test/integration/`. The scaffolded `core/`
-  suite is a skeleton: it verifies the provider deployment and includes commented-out
-  lifecycle steps to enable as you implement the provider. See
-  [test/integration/README.md](test/integration/README.md).
+- **Integration tests** — chainsaw suites under `test/integration/`, run with the operator
+  scaled to 0. The `core/` suite covers create, authentication, exposure, scheduling and
+  delete. See [test/integration/README.md](test/integration/README.md).
+- **Live end-to-end tests** — `make test-e2e-live` creates, smoke-tests (pymilvus),
+  upgrades and deletes real instances on the current cluster with the real operator.
 - **CI** — `.github/workflows/ci.yaml` runs lint, build, unit tests, generated-file
   verification, Helm lint, and each integration suite on every pull request.
 
@@ -523,9 +523,9 @@ kubectl logs -n everest-system deploy/provider-milvus -f
 | No `Provider` resource in the cluster | Is the chart installed? Check the provider deployment logs |
 | `Instance` ignored entirely | `spec.providerRef.name` must be `milvus` |
 | Operator resource created but no pods | Inspect the operator's custom resource status — the failure is upstream |
-
-<!-- TODO(provider): add technology-specific gotchas (sysctl limits, storage class or GPU
-     requirements, node selectors, …). -->
+| A spec change has no effect | The provider rejected it; the reason is in the provider logs |
+| Restore refused | Restores need Milvus 2.6.12 or newer on the target instance |
+| Volumes left behind after delete | The bundled etcd, MinIO and Pulsar PVCs are deleted with the instance; a StorageClass with `reclaimPolicy: Retain` keeps the underlying volumes |
 
 ## Contributing
 
