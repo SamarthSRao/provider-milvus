@@ -105,6 +105,10 @@ helm uninstall provider-milvus --namespace everest-system
 
 Uninstalling the chart does **not** delete running `Instance` resources or their data.
 
+Upgrading from `0.2.x` moves the bundled operator to 1.3.11. Milvus pods of
+existing instances restart once; their bundled MinIO is left as is, while new
+instances get its successor, Silo.
+
 ## Usage
 
 Verify that the provider registered itself:
