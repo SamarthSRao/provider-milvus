@@ -545,10 +545,13 @@ code generation, and the backup/restore interfaces are documented once for all p
 - **Integration tests** — chainsaw suites under `test/integration/`, run with the operator
   scaled to 0. The `core/` suite covers create, authentication, exposure, scheduling and
   delete. See [test/integration/README.md](test/integration/README.md).
-- **Live end-to-end tests** — `make test-e2e-live` creates, smoke-tests (pymilvus),
-  upgrades and deletes real instances on the current cluster with the real operator.
+- **Live end-to-end tests** — `make test-e2e-live` runs real standalone and cluster instances
+  on the current cluster with the real operator: smoke test (pymilvus), backup and restore,
+  upgrade with data, rejected downgrade, scaling, autoscaling, and clean deletion.
 - **CI** — `.github/workflows/ci.yaml` runs lint, build, unit tests, generated-file
   verification, Helm lint, and each integration suite on every pull request.
+  `.github/workflows/e2e.yaml` runs the live end-to-end tests on k3d (about 30 minutes)
+  nightly, on demand, and on pull requests labelled `e2e`.
 
 ## Troubleshooting
 

@@ -1,7 +1,7 @@
 ---
 # Live end-to-end run (test/e2e/run-matrix.sh) with the real Milvus operator on
 # a k3d cluster: standalone and cluster instances, upgrade, backup and restore,
-# scaling and autoscaling. It takes 30-60 minutes, so it runs nightly, on
+# scaling and autoscaling. It takes about 30 minutes, so it runs nightly, on
 # demand, and on pull requests labelled "e2e" instead of on every change.
 name: E2E
 
@@ -30,12 +30,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      # Two Milvus versions on four k3d nodes outgrow the runner's free disk.
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h /
-
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Checkout OpenEverest
