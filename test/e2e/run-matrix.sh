@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Live end-to-end run against a real cluster with OpenEverest and this provider
-# installed (operator running). For each instance in instances/: create it,
-# wait for Ready, check status.components and pod placement, run the data-plane
-# smoke test, then delete it and check nothing is left behind. Both instances
-# are also upgraded with data written before and verified after, and a
-# downgrade must be rejected.
+# installed (operator running). Standalone: create, smoke test, back up,
+# upgrade with data, reject a downgrade, and seed a new instance from the
+# backup. Cluster: create, check placement, rolling upgrade with data, scale
+# streaming and query nodes, reject a scale-in below a loaded collection's
+# replicas, and toggle autoscaling (when the metrics API is available). Every
+# instance is deleted at the end and must leave nothing behind. The two
+# topologies run one after the other to keep the footprint small.
 # Usage: test/e2e/run-matrix.sh [namespace]
 set -euo pipefail
 
@@ -89,20 +91,94 @@ delete_and_check() {
   fail "$instance left behind: $leftovers"
 }
 
+wait_backup() {
+  local backup=$1 state
+  for _ in $(seq 60); do
+    state=$(kubectl -n "$NAMESPACE" get backup "$backup" -o jsonpath='{.status.state}')
+    [[ "$state" == "Succeeded" ]] && return 0
+    [[ "$state" == "Failed" ]] && fail "backup $backup failed"
+    sleep 10
+  done
+  fail "backup $backup not done (state=$state)"
+}
+
+milvus_replicas() {
+  kubectl -n "$NAMESPACE" get milvus "$1" -o jsonpath="{.spec.components.$2.replicas}"
+}
+
+set_replicas() {
+  kubectl -n "$NAMESPACE" patch instance "$1" --type merge -p "{\"spec\":{\"components\":{\"$2\":{\"replicas\":$3}}}}"
+}
+
+scale() {
+  local instance=$1 component=$2 replicas=$3
+  set_replicas "$instance" "$component" "$replicas"
+  sleep 20
+  wait_ready "$instance"
+  [[ $(milvus_replicas "$instance" "$component") == "$replicas" ]] || fail "$instance $component not scaled to $replicas"
+}
+
+# The rejected spec turns the Instance Failed; putting it back recovers it.
+check_scale_in_rejected() {
+  local instance=$1
+  set_replicas "$instance" queryNode 1
+  sleep 30
+  [[ $(milvus_replicas "$instance" queryNode) == 2 ]] || fail "$instance query nodes went below a loaded collection's replicas"
+  set_replicas "$instance" queryNode 2
+  sleep 20
+  wait_ready "$instance"
+}
+
+check_autoscaling() {
+  local instance=$1 hpa="$1-milvus-querynode-hpa" bounds=""
+  if ! kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes >/dev/null 2>&1; then
+    log "skipping autoscaling: no metrics API"
+    return 0
+  fi
+  kubectl -n "$NAMESPACE" patch instance "$instance" --type merge \
+    -p '{"spec":{"components":{"queryNode":{"parameters":{"autoscaling":{"maxReplicas":3}}}}}}'
+  for _ in $(seq 30); do
+    bounds=$(kubectl -n "$NAMESPACE" get hpa "$hpa" -o jsonpath='{.spec.minReplicas}-{.spec.maxReplicas}' 2>/dev/null || true)
+    [[ "$bounds" == "1-3" ]] && break
+    sleep 10
+  done
+  [[ "$bounds" == "1-3" ]] || fail "$instance has no query node autoscaler (bounds=$bounds)"
+  kubectl -n "$NAMESPACE" patch instance "$instance" --type json \
+    -p '[{"op":"remove","path":"/spec/components/queryNode/parameters/autoscaling"}]'
+  for _ in $(seq 30); do
+    kubectl -n "$NAMESPACE" get hpa "$hpa" >/dev/null 2>&1 || { wait_ready "$instance"; return 0; }
+    sleep 10
+  done
+  fail "$instance kept its query node autoscaler after autoscaling was turned off"
+}
+
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 log "creating instances"
-kubectl -n "$NAMESPACE" apply -f "$DIR/instances/"
+kubectl -n "$NAMESPACE" apply -f "$DIR/backup/storage.yaml"
 
-log "standalone: ready, smoke, upgrade with data, downgrade rejected"
+log "standalone: ready, smoke, backup, upgrade with data, downgrade rejected"
+kubectl -n "$NAMESPACE" apply -f "$DIR/instances/standalone.yaml"
 wait_ready e2e-standalone
 check_components e2e-standalone
 MODE=write "$DIR/run-smoke.sh" "$NAMESPACE" e2e-standalone
+kubectl -n "$NAMESPACE" apply -f "$DIR/backup/backup.yaml"
+wait_backup e2e-standalone-backup
 upgrade e2e-standalone
 MODE=verify "$DIR/run-smoke.sh" "$NAMESPACE" e2e-standalone
 check_downgrade_rejected e2e-standalone
 
+log "restore: a new instance seeded from the backup"
+kubectl -n "$NAMESPACE" apply -f "$DIR/backup/restored.yaml"
+wait_ready e2e-restored
+MODE=verify "$DIR/run-smoke.sh" "$NAMESPACE" e2e-restored
+# Before its instance: a Backup whose instance is gone cannot be deleted.
+kubectl -n "$NAMESPACE" delete backup e2e-standalone-backup --wait=true --timeout=300s
+delete_and_check e2e-restored
+delete_and_check e2e-standalone
+
 log "cluster: ready, placement, smoke, rolling upgrade with data"
+kubectl -n "$NAMESPACE" apply -f "$DIR/instances/cluster.yaml"
 wait_ready e2e-cluster
 check_components e2e-cluster
 check_spread e2e-cluster queryNode
@@ -110,8 +186,17 @@ MODE=write "$DIR/run-smoke.sh" "$NAMESPACE" e2e-cluster
 upgrade e2e-cluster
 MODE=verify "$DIR/run-smoke.sh" "$NAMESPACE" e2e-cluster
 
-log "deleting instances"
-delete_and_check e2e-standalone
+log "cluster: scaling"
+# Two replicas of a collection need two streaming nodes as well.
+scale e2e-cluster streamingNode 2
+MODE=write REPLICAS=2 "$DIR/run-smoke.sh" "$NAMESPACE" e2e-cluster
+check_scale_in_rejected e2e-cluster
+MODE=verify "$DIR/run-smoke.sh" "$NAMESPACE" e2e-cluster
+scale e2e-cluster queryNode 1
+scale e2e-cluster streamingNode 1
+check_components e2e-cluster
+check_autoscaling e2e-cluster
 delete_and_check e2e-cluster
 
+kubectl -n "$NAMESPACE" delete -f "$DIR/backup/storage.yaml"
 log "PASS"

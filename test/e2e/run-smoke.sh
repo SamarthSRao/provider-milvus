@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Run the Milvus data-plane smoke test against an Instance from inside the cluster.
-# Usage: [MODE=full|write|verify] test/e2e/run-smoke.sh <namespace> <instance>
+# Usage: [MODE=full|write|verify] [REPLICAS=n] test/e2e/run-smoke.sh <namespace> <instance>
 set -euo pipefail
 
 NAMESPACE=${1:?namespace}
 INSTANCE=${2:?instance}
 MODE=${MODE:-full}
+REPLICAS=${REPLICAS:-0}
 JOB="smoke-${INSTANCE}"
 PYMILVUS_VERSION=${PYMILVUS_VERSION:-2.6.3}
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -32,6 +33,8 @@ spec:
           env:
             - name: MODE
               value: ${MODE}
+            - name: REPLICAS
+              value: "${REPLICAS}"
             - name: MILVUS_URI
               valueFrom: {secretKeyRef: {name: ${INSTANCE}-conn, key: uri}}
             - name: MILVUS_TOKEN

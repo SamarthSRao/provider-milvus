@@ -1,0 +1,13 @@
+apiVersion: backup.openeverest.io/v1alpha1
+kind: Backup
+metadata:
+  name: e2e-standalone-backup
+spec:
+  origin:
+    type: Instance
+    instanceRef:
+      name: e2e-standalone
+  classRef:
+    name: milvus-backup
+  storageRef:
+    name: backup-s3
