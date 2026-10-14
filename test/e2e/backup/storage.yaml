@@ -1,0 +1,60 @@
+# In-namespace S3 target for the e2e backup and restore checks.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-s3
+stringData:
+  AWS_ACCESS_KEY_ID: e2e-backup
+  AWS_SECRET_ACCESS_KEY: e2e-backup-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backup-minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: backup-minio}
+  template:
+    metadata:
+      labels: {app: backup-minio}
+    spec:
+      containers:
+        - name: minio
+          image: docker.io/pgsty/minio:latest
+          args: ["server", "/data"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: {secretKeyRef: {name: backup-s3, key: AWS_ACCESS_KEY_ID}}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: {secretKeyRef: {name: backup-s3, key: AWS_SECRET_ACCESS_KEY}}
+          ports:
+            - containerPort: 9000
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backup-minio
+spec:
+  selector: {app: backup-minio}
+  ports:
+    - port: 9000
+---
+apiVersion: backup.openeverest.io/v1alpha1
+kind: BackupStorage
+metadata:
+  name: backup-s3
+spec:
+  type: s3
+  s3:
+    bucket: e2e-backups
+    region: us-east-1
+    endpointURL: http://backup-minio:9000
+    forcePathStyle: true
+    credentialsSecretRef:
+      name: backup-s3

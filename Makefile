@@ -22,6 +22,10 @@ _IMG_TAG  = $(lastword $(subst :, ,$(IMG)))
 # k3d cluster name (must match dev/k3d_config.yaml metadata.name)
 K3D_CLUSTER_NAME ?= provider-milvus-test
 
+# Milvus operator replicas for deploy-provider-ci: integration tests run without
+# it, the e2e workflow with it.
+OPERATOR_REPLICAS ?= 0
+
 # controller-gen version
 CONTROLLER_TOOLS_VERSION ?= v0.18.0
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen-$(CONTROLLER_TOOLS_VERSION)
@@ -154,7 +158,7 @@ test-integration-scaling: ## Run scaling integration tests.
 # Live e2e needs a real cluster with OpenEverest, this provider and the Milvus
 # operator running (integration tests scale the operator to 0).
 .PHONY: test-e2e-live
-test-e2e-live: ## Create, smoke-test, upgrade and delete real Milvus instances on the current cluster.
+test-e2e-live: ## Create, smoke-test, back up, restore, upgrade, scale and delete real Milvus instances on the current cluster.
 	./test/e2e/run-matrix.sh $(E2E_NAMESPACE)
 
 .PHONY: load-image
@@ -186,7 +190,7 @@ deploy-provider-ci: helm-deps ## Deploy the provider via Helm for CI (IMG must a
 		--set image.repository=$(_IMG_REPO) \
 		--set image.tag=$(_IMG_TAG) \
 		--set image.pullPolicy=Never \
-		--set operator.replicaCount=0 \
+		--set operator.replicaCount=$(OPERATOR_REPLICAS) \
 		--wait --timeout 2m
 
 ##@ Local Development Cluster

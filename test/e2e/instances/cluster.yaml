@@ -28,6 +28,14 @@ spec:
     queryNode:
       type: milvus
       replicas: 2
+      # Autoscaling targets are relative to these.
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 2Gi
       schedulingPolicy:
         affinity:
           podAntiAffinity:

@@ -1,0 +1,34 @@
+# A new instance seeded from the backup; it runs the default version, which
+# the backup's source reaches only after its upgrade.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: e2e-restored
+spec:
+  providerRef:
+    name: milvus
+  topology:
+    type: standalone
+  components:
+    standalone:
+      type: milvus
+      replicas: 1
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+  backup:
+    enabled: true
+    classRef:
+      name: milvus-backup
+    storages:
+      - storageRef:
+          name: backup-s3
+  dataSource:
+    type: Backup
+    backup:
+      backupRef:
+        name: e2e-standalone-backup

@@ -11,6 +11,7 @@ import random
 import sys
 
 from pymilvus import DataType, MilvusClient
+from pymilvus.client.types import LoadState
 
 COLLECTION = "openeverest_smoke"
 DIM = 8
@@ -34,10 +35,14 @@ def write(client: MilvusClient) -> None:
     client.create_collection(COLLECTION, schema=schema, index_params=index)
     client.insert(COLLECTION, vectors())
     client.flush(COLLECTION)
+    # Loading with several replicas pins one query and one streaming node each.
+    if replicas := int(os.environ.get("REPLICAS", "0")):
+        client.load_collection(COLLECTION, replica_number=replicas)
 
 
 def verify(client: MilvusClient) -> bool:
-    client.load_collection(COLLECTION)
+    if client.get_load_state(COLLECTION)["state"] != LoadState.Loaded:
+        client.load_collection(COLLECTION)
     hits = client.search(COLLECTION, data=[vectors()[PROBE_ID]["vector"]], limit=3, output_fields=["id"])
     top = hits[0][0]["id"]
     count = client.query(COLLECTION, filter="", output_fields=["count(*)"])[0]["count(*)"]
