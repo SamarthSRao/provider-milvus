@@ -49,6 +49,7 @@ manages pods directly — all lifecycle work is delegated to the operator.
 
 | provider-milvus | OpenEverest | Operator | Kubernetes |
 |---|---|---|---|
+| `0.3.x` | `>= 2.0.0` | `1.3.11` | `1.30` – `1.34` |
 | `0.2.x` | `>= 2.0.0` | `1.3.9` | `1.30` – `1.34` |
 | `0.1.x` | `>= 2.0.0` | `1.3.9` | `1.30` – `1.34` |
 
@@ -417,7 +418,9 @@ spec:
 <!-- BEGIN GENERATED: versions -->
 | Version bundle | Default |  |
 |---|---|---|
-| `2.6.15` | ✅ | |
+| `2.6.25` | ✅ | |
+| `2.6.25-gpu` | | GPU build of every component |
+| `2.6.15` | | |
 | `2.6.15-gpu` | | GPU build of every component |
 | `2.6.11` | | |
 | `2.6.10` | | |

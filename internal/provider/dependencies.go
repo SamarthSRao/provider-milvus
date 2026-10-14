@@ -259,9 +259,9 @@ func buildStorage(param *dependencies.Storage) milvusapi.MilvusStorage {
 	values := milvusapi.Values{
 		"mode":     minioMode(replicas),
 		"replicas": int(replicas),
-		// The operator's un-pinned default lands on the gated Docker Hub
-		// minio/minio image (ImagePullBackOff); pin the pullable pgsty/silo
-		// images.
+		// Same images as the operator's Silo defaults; pinned so instances keep
+		// them on the legacy MinIO chart, whose default is the gated
+		// Docker Hub minio/minio.
 		"image":       map[string]any{"repository": "pgsty/silo", "tag": "RELEASE.2026-09-03T13-18-01Z"},
 		"mcImage":     map[string]any{"repository": "pgsty/mc", "tag": "RELEASE.2026-09-13T00-00-00Z"},
 		"persistence": map[string]any{"size": persistenceSize},

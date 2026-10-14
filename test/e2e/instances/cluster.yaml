@@ -6,7 +6,7 @@ spec:
   providerRef:
     name: milvus
   # Starts one version behind so the run can roll an ordered upgrade.
-  version: "2.6.10"
+  version: "2.6.15"
   topology:
     type: cluster
     parameters:

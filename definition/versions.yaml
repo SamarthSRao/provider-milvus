@@ -1,7 +1,11 @@
 componentTypes:
   milvus:
-    defaultVersion: "2.6.15"
+    defaultVersion: "2.6.25"
     versions:
+      - version: "2.6.25"
+        image: "milvusdb/milvus:v2.6.25"
+      - version: "2.6.25-gpu"
+        image: "milvusdb/milvus:v2.6.25-gpu"
       - version: "2.6.15"
         image: "milvusdb/milvus:v2.6.15"
       - version: "2.6.15-gpu"
@@ -12,8 +16,26 @@ componentTypes:
         image: "milvusdb/milvus:v2.6.10"
 
 # Restoring a backup needs 2.6.12 or newer (milvus-io/milvus#48114).
-defaultVersion: "2.6.15"
+defaultVersion: "2.6.25"
 versions:
+  - name: "2.6.25"
+    components:
+      standalone: "2.6.25"
+      proxy: "2.6.25"
+      mixCoord: "2.6.25"
+      dataNode: "2.6.25"
+      queryNode: "2.6.25"
+      streamingNode: "2.6.25"
+  # The operator orders rolling upgrades by one instance-wide image, so a
+  # bundle keeps every component on the same build.
+  - name: "2.6.25-gpu"
+    components:
+      standalone: "2.6.25-gpu"
+      proxy: "2.6.25-gpu"
+      mixCoord: "2.6.25-gpu"
+      dataNode: "2.6.25-gpu"
+      queryNode: "2.6.25-gpu"
+      streamingNode: "2.6.25-gpu"
   - name: "2.6.15"
     components:
       standalone: "2.6.15"
@@ -22,8 +44,6 @@ versions:
       dataNode: "2.6.15"
       queryNode: "2.6.15"
       streamingNode: "2.6.15"
-  # The operator orders rolling upgrades by one instance-wide image, so a
-  # bundle keeps every component on the same build.
   - name: "2.6.15-gpu"
     components:
       standalone: "2.6.15-gpu"
