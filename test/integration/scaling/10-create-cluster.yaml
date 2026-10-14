@@ -1,0 +1,40 @@
+# Small cluster Instance with sized bundled dependencies.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: scaling-cluster
+spec:
+  providerRef:
+    name: milvus
+  topology:
+    type: cluster
+    parameters:
+      dependencies:
+        etcd:
+          replicas: 1
+          persistence:
+            size: 2Gi
+        storage:
+          replicas: 1
+          persistence:
+            size: 5Gi
+  components:
+    proxy:
+      type: milvus
+      replicas: 1
+    mixCoord:
+      type: milvus
+      replicas: 1
+    dataNode:
+      type: milvus
+      replicas: 1
+    queryNode:
+      type: milvus
+      replicas: 1
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+    streamingNode:
+      type: milvus
+      replicas: 1

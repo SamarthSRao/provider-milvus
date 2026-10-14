@@ -1,0 +1,16 @@
+apiVersion: milvus.io/v1beta1
+kind: Milvus
+metadata:
+  name: scaling-cluster
+spec:
+  components:
+    proxy:
+      replicas: 2
+    mixCoord:
+      replicas: 1
+    dataNode:
+      replicas: 2
+    queryNode:
+      replicas: 3
+    streamingNode:
+      replicas: 2

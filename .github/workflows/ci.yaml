@@ -103,3 +103,12 @@ jobs:
       make_target: test-integration-core
       suite: core
     secrets: inherit
+
+  test-integration-scaling:
+    name: Integration / scaling
+    needs: [lint, build, verify]
+    uses: ./.github/workflows/integration-test.yaml
+    with:
+      make_target: test-integration-scaling
+      suite: scaling
+    secrets: inherit

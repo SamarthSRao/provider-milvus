@@ -1,6 +1,7 @@
 package milvusapi
 
 import (
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -67,6 +68,16 @@ type Component struct {
 	ComponentSpec  `json:",inline"`
 	Replicas       *int32   `json:"replicas,omitempty"`
 	InitContainers []Values `json:"initContainers,omitempty"`
+	// HPA makes the operator run a HorizontalPodAutoscaler, which then owns the
+	// replica count.
+	HPA *HPASpec `json:"hpa,omitempty"`
+}
+
+// HPASpec is the operator's HorizontalPodAutoscaler configuration.
+type HPASpec struct {
+	MinReplicas *int32                     `json:"minReplicas,omitempty"`
+	MaxReplicas int32                      `json:"maxReplicas"`
+	Metrics     []autoscalingv2.MetricSpec `json:"metrics,omitempty"`
 }
 
 // ServiceComponent adds a port number to a component.
@@ -130,7 +141,7 @@ type MilvusStreamingNode struct {
 
 // MilvusComponents contains the concrete Milvus deployment components.
 type MilvusComponents struct {
-	ComponentSpec `json:",inline"`
+	ComponentSpec    `json:",inline"`
 	ImageUpdateMode  string               `json:"imageUpdateMode,omitempty"`
 	Standalone       *MilvusStandalone    `json:"standalone,omitempty"`
 	Proxy            *MilvusProxy         `json:"proxy,omitempty"`

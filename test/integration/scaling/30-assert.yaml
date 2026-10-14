@@ -1,0 +1,19 @@
+# The operator gets an HPA spec whose minimum is the component's replicas.
+apiVersion: milvus.io/v1beta1
+kind: Milvus
+metadata:
+  name: scaling-cluster
+spec:
+  components:
+    queryNode:
+      replicas: 3
+      hpa:
+        minReplicas: 3
+        maxReplicas: 6
+        metrics:
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: 60

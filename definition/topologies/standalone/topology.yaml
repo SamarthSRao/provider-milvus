@@ -9,7 +9,7 @@ config:
       replicas: 1
       supportedFields:
         properties:
-          replicas: {minimum: 1}
+          replicas: {minimum: 1, maximum: 1}
           resources: {}
           service: {}
           schedulingPolicy: {}
@@ -32,14 +32,6 @@ ui:
       label: Resources
       description: Configure the core resources for the deployment.
       components:
-        replicas:
-          uiType: number
-          path: spec.components.standalone.replicas
-          fieldParams:
-            label: Replicas
-          validation:
-            min: 1
-            max: 3
         cpu:
           uiType: number
           path: spec.components.standalone.resources.limits.cpu

@@ -1,0 +1,10 @@
+# Without autoscaling the HPA spec is gone and the replicas are fixed again.
+apiVersion: milvus.io/v1beta1
+kind: Milvus
+metadata:
+  name: scaling-cluster
+spec:
+  components:
+    queryNode:
+      replicas: 3
+      (hpa == null): true

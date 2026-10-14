@@ -1,0 +1,15 @@
+# Let query nodes scale between their replicas (3) and 6 on CPU load.
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: scaling-cluster
+spec:
+  providerRef:
+    name: milvus
+  components:
+    queryNode:
+      type: milvus
+      parameters:
+        autoscaling:
+          maxReplicas: 6
+          targetCPUUtilization: 60

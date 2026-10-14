@@ -1,11 +1,8 @@
 package provider
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -47,37 +44,7 @@ func (m milvusRESTClient) Authenticate(ctx context.Context, baseURL, password st
 }
 
 func (m milvusRESTClient) post(ctx context.Context, url, password string, body any) error {
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+rootUsername+":"+password)
-
-	resp, err := m.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("milvus returned HTTP %d", resp.StatusCode)
-	}
-	// Milvus reports API errors as HTTP 200 with a non-zero code.
-	var result struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
-		return fmt.Errorf("decode milvus response: %w", err)
-	}
-	if result.Code != 0 {
-		return fmt.Errorf("milvus error %d: %s", result.Code, result.Message)
-	}
-	return nil
+	return m.call(ctx, url, password, body, &struct{}{})
 }
 
 // milvusInternalURL is the in-cluster address of the instance's Milvus API,

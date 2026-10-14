@@ -61,7 +61,7 @@ provider itself is covered under [Installation](#installation).
 | Capability | Status | Notes |
 |---|---|---|
 | Provisioning | ✅ | Standalone and cluster topologies |
-| Horizontal scaling | ✅ | Per-component replica counts |
+| Horizontal scaling | ✅ | Per-component replica counts; CPU/memory autoscaling for proxy, data and query nodes; scale-in is refused while a loaded collection needs the nodes |
 | Vertical scaling (CPU / memory) | ✅ | Per-component resource limits |
 | Version upgrades | ✅ | `spec.version`; the operator performs the rolling update |
 | Custom configuration | ✅ | Milvus engine config via component `parameters.configuration` |
@@ -259,6 +259,38 @@ spec:
             nodeSelector:
               nvidia.com/gpu.product: NVIDIA-H200
 ```
+
+### Scale and autoscale
+
+Change a component's `replicas` to scale it; the standalone topology always
+runs one replica. `parameters.autoscaling` on `proxy`, `dataNode` or
+`queryNode` adds a HorizontalPodAutoscaler that keeps at least `replicas` pods
+and adds up to `maxReplicas` under load. Targets are percentages of the
+component's resource requests (its limits when no requests are set), so the
+component needs CPU or memory resources; without a target it aims at 80% CPU.
+Autoscaling cannot be combined with `groups`, and the Kubernetes metrics API
+(metrics-server) must be available.
+
+```yaml
+spec:
+  components:
+    queryNode:
+      type: milvus
+      replicas: 2
+      resources:
+        limits:
+          cpu: "2"
+          memory: 8Gi
+      parameters:
+        autoscaling:
+          maxReplicas: 6
+          targetCPUUtilization: 70
+```
+
+Every replica of a loaded collection needs a query node and a streaming node
+of its own. Lowering `queryNode` or `streamingNode` replicas (or the
+autoscaling minimum) below the replica count of a loaded collection is
+rejected; release the collection, or reload it with fewer replicas, first.
 
 ### Bring your own etcd and object storage
 

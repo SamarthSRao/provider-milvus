@@ -122,6 +122,9 @@ func validateComponentParameters(c *controller.Context) error {
 		if err := validateDeploymentGroups(name, component.Replicas, params.Groups); err != nil {
 			return err
 		}
+		if err := validateAutoscaling(name, component, params); err != nil {
+			return err
+		}
 	}
 	return nil
 }

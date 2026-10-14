@@ -28,6 +28,23 @@ type MilvusParameters struct {
 	// streamingNode. The component's replicas, when set, must equal the sum of
 	// the groups' replicas.
 	Groups []DeploymentGroup `json:"groups,omitempty"`
+	// Autoscaling lets a HorizontalPodAutoscaler scale the component between
+	// its replicas and MaxReplicas. Supported on proxy, dataNode and queryNode.
+	Autoscaling *Autoscaling `json:"autoscaling,omitempty"`
+}
+
+// Autoscaling configures a HorizontalPodAutoscaler for one component. The
+// component's replicas are the minimum. Utilization targets are percentages
+// of the component's resource requests (its limits when no requests are
+// set); without any target the autoscaler aims at 80% CPU.
+type Autoscaling struct {
+	// MaxReplicas is the most pods the autoscaler may run.
+	MaxReplicas int32 `json:"maxReplicas"`
+	// TargetCPUUtilization is the average CPU utilization to keep, in percent.
+	TargetCPUUtilization *int32 `json:"targetCPUUtilization,omitempty"`
+	// TargetMemoryUtilization is the average memory utilization to keep, in
+	// percent.
+	TargetMemoryUtilization *int32 `json:"targetMemoryUtilization,omitempty"`
 }
 
 // DeploymentGroup is one independently placed workload of a component. It
