@@ -22,6 +22,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -242,6 +254,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -462,6 +486,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -682,6 +718,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -902,6 +950,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -1122,6 +1182,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -1342,6 +1414,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -1562,6 +1646,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -1782,6 +1878,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -2002,6 +2110,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -2222,6 +2342,18 @@ spec:
       parametersSchema:
         openAPIV3Schema:
           properties:
+            autoscaling:
+              properties:
+                maxReplicas:
+                  format: int32
+                  type: integer
+                targetCPUUtilization:
+                  format: int32
+                  type: integer
+                targetMemoryUtilization:
+                  format: int32
+                  type: integer
+              type: object
             configuration:
               type: string
             groups:
@@ -2715,6 +2847,7 @@ spec:
             openAPIV3Schema:
               properties:
                 replicas:
+                  maximum: 1
                   minimum: 1
                 resources: {}
                 schedulingPolicy: {}
@@ -2912,6 +3045,36 @@ spec:
           label: Coordinator
         dataNodes:
           components:
+            autoscaling:
+              components:
+                limits:
+                  components:
+                    maxReplicas:
+                      fieldParams:
+                        defaultValue: 4
+                        label: Max replicas
+                      path: spec.components.dataNode.parameters.autoscaling.maxReplicas
+                      uiType: number
+                      validation:
+                        int: true
+                        min: 1
+                        required: true
+                    targetCPU:
+                      fieldParams:
+                        badge: '%'
+                        defaultValue: 80
+                        label: Target CPU
+                      path: spec.components.dataNode.parameters.autoscaling.targetCPUUtilization
+                      uiType: number
+                      validation:
+                        int: true
+                        min: 1
+                  groupType: line
+                  uiType: group
+              description: Add data nodes under load, between the replicas above and a maximum.
+              groupType: toggleable
+              label: Autoscaling
+              uiType: group
             replicas:
               fieldParams:
                 defaultValue: 1
@@ -2947,6 +3110,7 @@ spec:
           componentsOrder:
             - replicas
             - resources
+            - autoscaling
           description: Configure the data nodes.
           label: Data nodes
         messageStream:
@@ -3309,6 +3473,36 @@ spec:
           label: Object storage
         proxy:
           components:
+            autoscaling:
+              components:
+                limits:
+                  components:
+                    maxReplicas:
+                      fieldParams:
+                        defaultValue: 4
+                        label: Max replicas
+                      path: spec.components.proxy.parameters.autoscaling.maxReplicas
+                      uiType: number
+                      validation:
+                        int: true
+                        min: 1
+                        required: true
+                    targetCPU:
+                      fieldParams:
+                        badge: '%'
+                        defaultValue: 80
+                        label: Target CPU
+                      path: spec.components.proxy.parameters.autoscaling.targetCPUUtilization
+                      uiType: number
+                      validation:
+                        int: true
+                        min: 1
+                  groupType: line
+                  uiType: group
+              description: Add proxies under load, between the replicas above and a maximum.
+              groupType: toggleable
+              label: Autoscaling
+              uiType: group
             externalAccess:
               fieldParams:
                 defaultValue: ClusterIP
@@ -3358,10 +3552,41 @@ spec:
             - replicas
             - resources
             - externalAccess
+            - autoscaling
           description: Configure the proxy.
           label: Proxy
         queryNodes:
           components:
+            autoscaling:
+              components:
+                limits:
+                  components:
+                    maxReplicas:
+                      fieldParams:
+                        defaultValue: 4
+                        label: Max replicas
+                      path: spec.components.queryNode.parameters.autoscaling.maxReplicas
+                      uiType: number
+                      validation:
+                        int: true
+                        min: 1
+                        required: true
+                    targetCPU:
+                      fieldParams:
+                        badge: '%'
+                        defaultValue: 80
+                        label: Target CPU
+                      path: spec.components.queryNode.parameters.autoscaling.targetCPUUtilization
+                      uiType: number
+                      validation:
+                        int: true
+                        min: 1
+                  groupType: line
+                  uiType: group
+              description: Add query nodes under load, between the replicas above and a maximum.
+              groupType: toggleable
+              label: Autoscaling
+              uiType: group
             replicas:
               fieldParams:
                 defaultValue: 1
@@ -3397,6 +3622,7 @@ spec:
           componentsOrder:
             - replicas
             - resources
+            - autoscaling
           description: Configure the query nodes.
           label: Query nodes
         streamingNodes:
@@ -3644,14 +3870,6 @@ spec:
               validation:
                 min: 0.5
                 required: true
-            replicas:
-              fieldParams:
-                label: Replicas
-              path: spec.components.standalone.replicas
-              uiType: number
-              validation:
-                max: 3
-                min: 1
           description: Configure the core resources for the deployment.
           label: Resources
       sectionsOrder:

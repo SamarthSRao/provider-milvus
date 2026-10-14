@@ -244,6 +244,10 @@ func validateRequestNotAboveLimit(name string, resourceName corev1.ResourceName,
 // requiring at least one replica for every coordinator in cluster mode.
 func validateTopologyRules(components map[string]corev1alpha1.ComponentSpec, topologyType string) error {
 	if topologyType != "cluster" {
+		// Standalone embeds the coordinators; a second pod would compete with it.
+		if replicas := components[common.ComponentStandalone].Replicas; replicas != nil && *replicas > 1 {
+			return fmt.Errorf("standalone runs a single replica; use the cluster topology to scale out")
+		}
 		return nil
 	}
 	for _, name := range clusterCoordinators {

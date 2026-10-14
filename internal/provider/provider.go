@@ -28,7 +28,8 @@ var _ controller.ProviderInterface = (*Provider)(nil)
 // Provider implements controller.ProviderInterface for the provider-milvus provider.
 type Provider struct {
 	controller.BaseProvider
-	rootPassword rootPasswordAPI
+	rootPassword   rootPasswordAPI
+	loadedReplicas loadedReplicasAPI
 }
 
 // New creates a new Provider instance.
@@ -52,7 +53,8 @@ func New() *Provider {
 					handler.EnqueueRequestsFromMapFunc(enqueueScheduledBackupInstance)),
 			},
 		},
-		rootPassword: newMilvusRESTClient(),
+		rootPassword:   newMilvusRESTClient(),
+		loadedReplicas: newMilvusRESTClient(),
 	}
 }
 
@@ -104,7 +106,9 @@ func makeMilvusComponent(c *controller.Context, name string, image milvusImage) 
 		Replicas: componentReplicasOrDefault(components, name, 1),
 	}
 	applySchedulingPolicy(&component.ComponentSpec, components[name].SchedulingPolicy)
-	applyPodCustomization(&component, componentParameters(c, name).Pod)
+	params := componentParameters(c, name)
+	applyPodCustomization(&component, params.Pod)
+	applyAutoscaling(&component, params.Autoscaling)
 	return component
 }
 
@@ -334,7 +338,10 @@ func (p *Provider) Validate(c *controller.Context) error {
 	l := log.FromContext(c.Context())
 	l.Info("Validating instance", "name", c.Name())
 
-	return validateInstance(c)
+	if err := validateInstance(c); err != nil {
+		return err
+	}
+	return p.validateReplicaHostsScaleIn(c)
 }
 
 // Sync ensures all required resources exist and are configured correctly.
