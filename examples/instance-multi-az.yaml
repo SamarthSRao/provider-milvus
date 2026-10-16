@@ -1,8 +1,13 @@
 # Example multi-AZ cluster Milvus Instance for the provider-milvus provider.
-# Spreads the query nodes, data nodes and proxies evenly across availability
-# zones, and runs two MixCoord replicas: one active, one hot standby. The
-# provider enables active-standby on the coordinators automatically when
-# mixCoord has more than one replica.
+# Spreads query nodes, data nodes, proxies, coordinators, and streaming nodes
+# evenly across availability zones. Active-standby is enabled automatically
+# in cluster mode, so running two MixCoord replicas allows the standby to take
+# over if the active replica's zone fails.
+#
+# Note: schedulingPolicy does not reach bundled dependencies (etcd and MinIO),
+# which use zonal persistent volumes and unconstrained placement. A zone loss
+# can still take them down; true multi-AZ tolerance requires external etcd and
+# S3-compatible storage.
 #
 # A topology spread constraint without a labelSelector counts this
 # component's own pods. whenUnsatisfiable: DoNotSchedule keeps pods Pending
@@ -37,6 +42,11 @@ spec:
       type: milvus
       # Active-standby: the second replica takes over if the active one fails.
       replicas: 2
+      schedulingPolicy:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
     dataNode:
       type: milvus
       replicas: 2
@@ -55,4 +65,10 @@ spec:
             whenUnsatisfiable: DoNotSchedule
     streamingNode:
       type: milvus
-      replicas: 1
+      # Streaming nodes own WAL channels in 2.6; run at least 2 across zones to survive zone loss.
+      replicas: 2
+      schedulingPolicy:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
